@@ -6,7 +6,7 @@ import 'app_theme.dart';
 import 'screens/auth_screen.dart';
 import 'screens/cloud_workspace.dart';
 import 'screens/landing_screen.dart';
-import 'screens/workspace_screen.dart';
+import 'widgets/cantiere_wordmark.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -54,7 +54,7 @@ class EvalinkApp extends StatelessWidget {
       authReturnFailed: opensWorkspace && client?.auth.currentUser == null,
     );
     return MaterialApp(
-      title: 'Evalink',
+      title: cantiereName,
       debugShowCheckedModeBanner: false,
       theme: evalinkTheme(),
       initialRoute: opensWorkspace ? '/workspace' : null,
@@ -67,8 +67,10 @@ class EvalinkApp extends StatelessWidget {
             ]
           : null,
       routes: {
-        '/': (_) => LandingScreen(connected: client != null),
-        '/demo': (_) => const WorkspaceScreen(),
+        '/': (_) => const LandingScreen(),
+        '/login': (_) => _WorkspaceGate(client: client),
+        '/signup': (_) =>
+            _WorkspaceGate(client: client, initiallyRegister: true),
         '/workspace': workspace,
       },
     );
@@ -76,28 +78,33 @@ class EvalinkApp extends StatelessWidget {
 }
 
 class _WorkspaceGate extends StatelessWidget {
-  const _WorkspaceGate({required this.client, required this.authReturnFailed});
+  const _WorkspaceGate({
+    required this.client,
+    this.authReturnFailed = false,
+    this.initiallyRegister = false,
+  });
   final SupabaseClient? client;
   final bool authReturnFailed;
+  final bool initiallyRegister;
 
   @override
   Widget build(BuildContext context) {
     final supabase = client;
     if (supabase == null) {
       return Scaffold(
-        appBar: AppBar(title: const EvalinkMark()),
+        appBar: AppBar(title: const CantiereWordmark(dark: false)),
         body: Center(
           child: Padding(
             padding: const EdgeInsets.all(24),
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                const Text('Accounts are unavailable in this preview.'),
+                const Text('Account access is temporarily unavailable.'),
                 const SizedBox(height: 16),
                 FilledButton(
                   onPressed: () =>
-                      Navigator.pushReplacementNamed(context, '/demo'),
-                  child: const Text('Open demo'),
+                      Navigator.popUntil(context, ModalRoute.withName('/')),
+                  child: const Text('Back to home'),
                 ),
               ],
             ),
@@ -112,6 +119,7 @@ class _WorkspaceGate extends StatelessWidget {
         return user == null
             ? AuthScreen(
                 client: supabase,
+                initiallyRegister: initiallyRegister,
                 authReturnFailed:
                     snapshot.hasError ||
                     (authReturnFailed &&

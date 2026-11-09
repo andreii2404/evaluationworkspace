@@ -1,5 +1,9 @@
+import 'package:flutter/foundation.dart' show ValueListenable;
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart' show RenderAbstractViewport;
+
+import '../widgets/cantiere_wordmark.dart';
+import '../widgets/liquid_glass.dart';
 
 const _smartBlue = Color(0xFF0466C8);
 const _sapphire = Color(0xFF0353A4);
@@ -8,7 +12,6 @@ const _prussian = Color(0xFF002855);
 const _navy = Color(0xFF001845);
 const _ink = Color(0xFF001233);
 const _indigo = Color(0xFF33415C);
-const _slate = Color(0xFF5C677D);
 const _grey = Color(0xFF7D8597);
 const _silver = Color(0xFF979DAC);
 const _paper = Color(0xFFF8FAFD);
@@ -35,7 +38,7 @@ TextStyle _display(double size, {Color color = _ink}) =>
     _type(size, color: color, weight: 800, height: 1.06, spacing: -size * .049);
 
 Widget _eyebrow(String label, {Color color = _sapphire}) =>
-    Text(label, style: _type(11, color: color, weight: 800, spacing: 1.65));
+    Text(label, style: _type(9, color: color, weight: 800, spacing: 1.65));
 
 Duration _motion(BuildContext context, int milliseconds) =>
     MediaQuery.disableAnimationsOf(context)
@@ -43,9 +46,7 @@ Duration _motion(BuildContext context, int milliseconds) =>
     : Duration(milliseconds: milliseconds);
 
 class LandingScreen extends StatefulWidget {
-  const LandingScreen({super.key, required this.connected});
-
-  final bool connected;
+  const LandingScreen({super.key});
 
   @override
   State<LandingScreen> createState() => _LandingScreenState();
@@ -56,217 +57,386 @@ class _LandingScreenState extends State<LandingScreen> {
   final _workflow = GlobalKey();
   final _audience = GlobalKey();
   final _trust = GlobalKey();
-  final _faq = GlobalKey();
+  final _header = GlobalKey();
+  final _scroll = ScrollController();
+  final _active = ValueNotifier(0);
+  final _waterDrift = ValueNotifier(0.0);
+  final _readingProgress = ValueNotifier(0.0);
+  int _navigation = 0;
+  bool _jumping = false;
 
-  void _go(GlobalKey key) {
-    final target = key.currentContext;
-    if (target == null) return;
-    Scrollable.ensureVisible(
-      target,
-      duration: _motion(context, 520),
-      curve: Curves.easeInOutCubic,
-    );
+  late final _sections = [_top, _workflow, _audience, _trust];
+
+  static const List<LiquidNavItem> _links = [
+    (label: 'Home', icon: Icons.home_outlined),
+    (label: 'How it works', icon: Icons.layers_outlined),
+    (label: 'Who can join', icon: Icons.group_outlined),
+    (label: 'Safety', icon: Icons.shield_outlined),
+  ];
+
+  @override
+  void initState() {
+    super.initState();
+    _scroll.addListener(_onScroll);
   }
 
-  void _demo() => Navigator.pushNamed(context, '/demo');
+  double get _headerClearance =>
+      (_header.currentContext?.size?.height ?? 60) + 24;
 
-  void _open() {
-    if (widget.connected) {
-      Navigator.pushNamed(context, '/workspace');
-    } else {
-      _demo();
+  double? _offset(GlobalKey key) {
+    final object = key.currentContext?.findRenderObject();
+    if (object is! RenderBox || !object.attached || !object.hasSize) {
+      return null;
+    }
+    return RenderAbstractViewport.of(
+      object,
+    ).getOffsetToReveal(object, 0).offset;
+  }
+
+  void _onScroll() {
+    final position = _scroll.position;
+    final offset = position.pixels;
+    if (position.hasContentDimensions) _updateReadingProgress(position);
+    _waterDrift.value = (offset * .11).clamp(0.0, 62.0);
+    if (_jumping) return;
+
+    final readingLine = offset + _headerClearance + 18;
+    var current = 0;
+    for (var i = 1; i < _sections.length; i++) {
+      final top = _offset(_sections[i]);
+      if (top != null && top <= readingLine) current = i;
+    }
+    _active.value = current;
+  }
+
+  void _updateReadingProgress(ScrollMetrics metrics) {
+    final extent = metrics.maxScrollExtent;
+    _readingProgress.value = extent > 0
+        ? (metrics.pixels / extent).clamp(0.0, 1.0)
+        : 0.0;
+  }
+
+  Future<void> _go(int index) async {
+    final top = _offset(_sections[index]);
+    if (!_scroll.hasClients || top == null) return;
+    final destination = (top - _headerClearance).clamp(
+      0.0,
+      _scroll.position.maxScrollExtent,
+    );
+    _active.value = index;
+    final request = ++_navigation;
+    _jumping = true;
+    final duration = _motion(context, 700);
+    try {
+      if (duration == Duration.zero) {
+        _scroll.jumpTo(destination);
+      } else {
+        await _scroll.animateTo(
+          destination,
+          duration: duration,
+          curve: Curves.easeInOutCubic,
+        );
+      }
+    } finally {
+      if (mounted && request == _navigation) {
+        _jumping = false;
+        if ((_scroll.offset - destination).abs() > 2) _onScroll();
+      }
     }
   }
 
-  String get _startLabel => widget.connected ? 'Open workspace' : 'Open demo';
+  @override
+  void dispose() {
+    _scroll.dispose();
+    _active.dispose();
+    _waterDrift.dispose();
+    _readingProgress.dispose();
+    super.dispose();
+  }
+
+  void _logIn() => Navigator.pushNamed(context, '/login');
 
   @override
-  Widget build(BuildContext context) {
-    final links = [
-      ('How it works', _workflow),
-      ('Who it’s for', _audience),
-      ('Trust & access', _trust),
-      ('FAQ', _faq),
-    ];
-
-    return Scaffold(
-      backgroundColor: _paper,
-      body: SelectionArea(
-        child: SingleChildScrollView(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              ColoredBox(
-                key: _top,
-                color: _ink,
-                child: _PageWidth(
-                  child: LayoutBuilder(
-                    builder: (context, box) => Padding(
-                      padding: const EdgeInsets.symmetric(vertical: 12),
-                      child: Row(
-                        children: [
-                          const _Wordmark(),
-                          const Spacer(),
-                          if (box.maxWidth >= 830) ...[
-                            for (final (label, target) in links)
-                              _TextAction(
-                                label,
-                                dark: true,
-                                onPressed: () => _go(target),
-                              ),
-                            const SizedBox(width: 18),
-                          ],
-                          if (box.maxWidth < 830)
-                            PopupMenuButton<GlobalKey>(
-                              tooltip: 'Navigate landing page',
-                              icon: const Icon(
-                                Icons.menu_rounded,
-                                color: Colors.white,
-                              ),
-                              onSelected: _go,
-                              itemBuilder: (context) => [
-                                for (final (label, target) in links)
-                                  PopupMenuItem(
-                                    value: target,
-                                    child: Text(label, style: _type(14)),
-                                  ),
-                              ],
-                            ),
-                          if (box.maxWidth >= 295)
-                            _Action(
-                              widget.connected ? 'Sign in' : 'Open demo',
-                              onPressed: _open,
-                              secondary: true,
-                              dark: true,
-                            ),
-                        ],
+  Widget build(BuildContext context) => Scaffold(
+    backgroundColor: _paper,
+    body: Stack(
+      children: [
+        SelectionArea(
+          child: NotificationListener<ScrollMetricsNotification>(
+            onNotification: (notification) {
+              if (notification.depth == 0) {
+                _updateReadingProgress(notification.metrics);
+              }
+              return false;
+            },
+            child: SingleChildScrollView(
+              controller: _scroll,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  _WaterStage(
+                    key: _top,
+                    drift: _waterDrift,
+                    child: _PageWidth(
+                      child: LayoutBuilder(
+                        builder: (context, box) => Padding(
+                          padding: EdgeInsets.only(
+                            top: box.maxWidth >= 920 ? 153 : 172,
+                            bottom: box.maxWidth >= 920 ? 68 : 38,
+                          ),
+                          child: _Hero(onLogin: _logIn, onSteps: () => _go(1)),
+                        ),
                       ),
                     ),
                   ),
-                ),
-              ),
-              _PageWidth(
-                child: _Section(
-                  child: _Hero(
-                    startLabel: _startLabel,
-                    onStart: _open,
-                    onSteps: () => _go(_workflow),
+                  const _ProjectTypes(),
+                  const _Reveal(child: _BrandStory()),
+                  _GlassField(
+                    key: _workflow,
+                    child: const _PageWidth(
+                      child: _Section(child: _Workflow()),
+                    ),
                   ),
-                ),
-              ),
-              const _ProjectTypes(),
-              _PageWidth(
-                key: _workflow,
-                child: const _Section(child: _Workflow()),
-              ),
-              ColoredBox(
-                key: _audience,
-                color: _mist,
-                child: _PageWidth(
-                  child: _Section(
-                    child: _Audience(startLabel: _startLabel, onStart: _open),
+                  _GlassField(
+                    key: _audience,
+                    inverted: true,
+                    child: const _PageWidth(
+                      child: _Section(child: _Audience()),
+                    ),
                   ),
-                ),
-              ),
-              ColoredBox(
-                key: _trust,
-                color: _ink,
-                child: const _PageWidth(child: _Section(child: _Trust())),
-              ),
-              _PageWidth(
-                key: _faq,
-                child: const _Section(child: _Questions()),
-              ),
-              ColoredBox(
-                color: _navy,
-                child: _PageWidth(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                      _Section(
-                        child: _Reveal(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              _eyebrow('OPEN THE WORKSPACE', color: _lightBlue),
-                              const SizedBox(height: 16),
-                              Semantics(
-                                header: true,
-                                child: Text(
-                                  'What are you working on?',
-                                  style: _display(52, color: Colors.white),
-                                ),
-                              ),
-                              const SizedBox(height: 16),
-                              Text(
-                                'Bring a project you want to improve, or review a sample to see how EvaLink works.',
-                                style: _type(16, color: _lightBlue),
-                              ),
-                              const SizedBox(height: 25),
-                              Wrap(
-                                spacing: 12,
-                                runSpacing: 10,
-                                children: [
-                                  _Action(
-                                    _startLabel,
-                                    onPressed: _open,
-                                    icon: Icons.arrow_outward_rounded,
-                                  ),
-                                  if (widget.connected)
-                                    _Action(
-                                      'Try the demo',
-                                      onPressed: _demo,
-                                      secondary: true,
-                                      dark: true,
-                                    ),
-                                ],
-                              ),
-                            ],
-                          ),
-                        ),
-                      ),
-                      const Divider(color: _indigo, height: 1),
-                      Padding(
-                        padding: const EdgeInsets.symmetric(vertical: 24),
+                  _WaterStage(
+                    key: _trust,
+                    child: const _PageWidth(child: _Section(child: _Trust())),
+                  ),
+                  const _GlassField(
+                    child: _PageWidth(child: _Section(child: _Questions())),
+                  ),
+                  ColoredBox(
+                    color: _ink,
+                    child: _PageWidth(
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(vertical: 18),
                         child: Wrap(
-                          spacing: 24,
-                          runSpacing: 10,
+                          spacing: 16,
+                          runSpacing: 8,
                           alignment: WrapAlignment.spaceBetween,
                           crossAxisAlignment: WrapCrossAlignment.center,
                           children: [
-                            const _Wordmark(),
-                            Wrap(
-                              spacing: 10,
-                              children: [
-                                _TextAction(
-                                  'Demo',
-                                  dark: true,
-                                  onPressed: _demo,
+                            const CantiereWordmark(),
+                            _TextAction(
+                              'Back to top',
+                              dark: true,
+                              onPressed: () => _go(0),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+        Positioned(
+          top: 12,
+          left: 0,
+          right: 0,
+          child: _PageWidth(
+            child: LayoutBuilder(
+              builder: (context, box) {
+                final scaler = MediaQuery.textScalerOf(context);
+                final wide = box.maxWidth >= 960 && scaler.scale(12) <= 15;
+                final nav = ValueListenableBuilder<int>(
+                  valueListenable: _active,
+                  builder: (context, active, _) => LiquidGlassNav(
+                    items: _links,
+                    active: active,
+                    onSelected: _go,
+                    compact: !wide,
+                  ),
+                );
+                final account = _Action('Log in', onPressed: _logIn);
+                final controls = Padding(
+                  padding: const EdgeInsets.fromLTRB(12, 8, 10, 8),
+                  child: wide
+                      ? Row(
+                          children: [
+                            const CantiereWordmark(),
+                            const SizedBox(width: 18),
+                            Expanded(
+                              child: Center(
+                                child: ConstrainedBox(
+                                  constraints: const BoxConstraints(
+                                    maxWidth: 655,
+                                  ),
+                                  child: nav,
                                 ),
-                                _TextAction(
-                                  'Back to top',
-                                  dark: true,
-                                  onPressed: () => _go(_top),
+                              ),
+                            ),
+                            const SizedBox(width: 18),
+                            account,
+                          ],
+                        )
+                      : Column(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: [
+                            Row(
+                              children: [
+                                Expanded(
+                                  child: CantiereWordmark(
+                                    fontSize: 23,
+                                    iconOnly:
+                                        box.maxWidth < 94 + scaler.scale(154),
+                                  ),
+                                ),
+                                const SizedBox(width: 8),
+                                ConstrainedBox(
+                                  constraints: BoxConstraints(
+                                    maxWidth: box.maxWidth * .56,
+                                  ),
+                                  child: account,
                                 ),
                               ],
                             ),
+                            const SizedBox(height: 5),
+                            nav,
                           ],
+                        ),
+                );
+                return GlassSurface(
+                  key: _header,
+                  radius: wide ? 36 : 27,
+                  blur: 15,
+                  child: Stack(
+                    children: [
+                      controls,
+                      Positioned(
+                        left: 24,
+                        right: 24,
+                        bottom: 0,
+                        child: IgnorePointer(
+                          child: ValueListenableBuilder<double>(
+                            valueListenable: _readingProgress,
+                            builder: (context, progress, _) =>
+                                FractionallySizedBox(
+                                  alignment: Alignment.centerLeft,
+                                  widthFactor: progress,
+                                  child: const SizedBox(
+                                    height: 2,
+                                    child: ColoredBox(color: _lightBlue),
+                                  ),
+                                ),
+                          ),
                         ),
                       ),
                     ],
                   ),
-                ),
-              ),
-            ],
+                );
+              },
+            ),
           ),
         ),
+      ],
+    ),
+  );
+}
+
+class _WaterStage extends StatelessWidget {
+  const _WaterStage({super.key, this.drift, required this.child});
+
+  final ValueListenable<double>? drift;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    final image = Image.asset(
+      'assets/landing/waterline.webp',
+      fit: BoxFit.cover,
+      alignment: const Alignment(.48, .25),
+      excludeFromSemantics: true,
+      errorBuilder: (context, error, stack) => const ColoredBox(color: _regal),
+    );
+    return ColoredBox(
+      color: _ink,
+      child: Stack(
+        clipBehavior: Clip.hardEdge,
+        children: [
+          Positioned.fill(
+            top: -68,
+            child: drift != null && !MediaQuery.disableAnimationsOf(context)
+                ? ValueListenableBuilder<double>(
+                    valueListenable: drift!,
+                    child: image,
+                    builder: (context, offset, photo) => Transform.translate(
+                      offset: Offset(0, offset),
+                      child: photo,
+                    ),
+                  )
+                : image,
+          ),
+          const Positioned.fill(
+            child: DecoratedBox(
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  begin: Alignment.centerLeft,
+                  end: Alignment.centerRight,
+                  colors: [
+                    Color(0xF4001233),
+                    Color(0xCD001845),
+                    Color(0x30002855),
+                  ],
+                  stops: [0, .44, 1],
+                ),
+              ),
+            ),
+          ),
+          const Positioned.fill(
+            child: DecoratedBox(
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  begin: Alignment.topCenter,
+                  end: Alignment.bottomCenter,
+                  colors: [
+                    Color(0x7A001233),
+                    Colors.transparent,
+                    Color(0xD8001233),
+                  ],
+                  stops: [0, .52, 1],
+                ),
+              ),
+            ),
+          ),
+          child,
+        ],
       ),
     );
   }
 }
 
+class _GlassField extends StatelessWidget {
+  const _GlassField({super.key, this.inverted = false, required this.child});
+
+  final bool inverted;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) => DecoratedBox(
+    decoration: BoxDecoration(
+      gradient: LinearGradient(
+        begin: Alignment.topLeft,
+        end: Alignment.bottomRight,
+        colors: inverted
+            ? const [Color(0xFFCFDFF5), _paper, Color(0xFFDCEBFF)]
+            : const [_paper, Color(0xFFDBE9FC), Color(0xFFBFD7F4)],
+      ),
+    ),
+    child: child,
+  );
+}
+
 class _PageWidth extends StatelessWidget {
-  const _PageWidth({super.key, required this.child});
+  const _PageWidth({required this.child});
 
   final Widget child;
 
@@ -301,73 +471,6 @@ class _Section extends StatelessWidget {
   );
 }
 
-class _Wordmark extends StatelessWidget {
-  const _Wordmark();
-
-  @override
-  Widget build(BuildContext context) => Row(
-    mainAxisSize: MainAxisSize.min,
-    children: [
-      const SizedBox.square(
-        dimension: 38,
-        child: CustomPaint(painter: _BrandGlyph()),
-      ),
-      const SizedBox(width: 10),
-      Text(
-        'EvaLink',
-        style: _type(24, color: Colors.white, weight: 800, spacing: -1.1),
-      ),
-    ],
-  );
-}
-
-class _BrandGlyph extends CustomPainter {
-  const _BrandGlyph();
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    canvas.save();
-    canvas.scale(size.width / 64, size.height / 64);
-    canvas.drawRRect(
-      RRect.fromRectAndRadius(
-        const Rect.fromLTWH(0, 0, 64, 64),
-        const Radius.circular(15),
-      ),
-      Paint()..color = _smartBlue,
-    );
-    final link = Paint()
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 4.5
-      ..strokeJoin = StrokeJoin.round
-      ..strokeCap = StrokeCap.round;
-    canvas.drawPath(
-      Path()
-        ..moveTo(29, 18)
-        ..lineTo(15, 32)
-        ..lineTo(29, 46),
-      link..color = Colors.white,
-    );
-    canvas.drawPath(
-      Path()
-        ..moveTo(35, 18)
-        ..lineTo(49, 32)
-        ..lineTo(35, 46),
-      link..color = _lightBlue,
-    );
-    canvas.drawPath(
-      Path()
-        ..moveTo(26, 32)
-        ..lineTo(31, 37)
-        ..lineTo(39, 27),
-      link..color = Colors.white,
-    );
-    canvas.restore();
-  }
-
-  @override
-  bool shouldRepaint(_BrandGlyph oldDelegate) => false;
-}
-
 class _Action extends StatelessWidget {
   const _Action(
     this.label, {
@@ -390,11 +493,19 @@ class _Action extends StatelessWidget {
       foregroundColor: WidgetStatePropertyAll(foreground),
       backgroundColor: WidgetStateProperty.resolveWith((states) {
         final hover = states.contains(WidgetState.hovered);
+        final pressed = states.contains(WidgetState.pressed);
         if (secondary) {
-          return hover ? (dark ? _prussian : _mist) : Colors.transparent;
+          return dark
+              ? (hover ? const Color(0x80659CDF) : const Color(0x403B77BF))
+              : (hover ? _mist : Colors.transparent);
         }
+        if (pressed) return _regal;
         return hover ? _sapphire : _smartBlue;
       }),
+      elevation: WidgetStateProperty.resolveWith(
+        (states) => !secondary && states.contains(WidgetState.hovered) ? 3 : 0,
+      ),
+      shadowColor: const WidgetStatePropertyAll(Color(0x6682BFFF)),
       overlayColor: WidgetStateProperty.resolveWith((states) {
         if (states.contains(WidgetState.focused)) {
           return (dark || !secondary ? Colors.white : _smartBlue).withValues(
@@ -403,14 +514,12 @@ class _Action extends StatelessWidget {
         }
         return null;
       }),
-      textStyle: WidgetStatePropertyAll(_type(13, weight: 800)),
+      textStyle: WidgetStatePropertyAll(_type(11, weight: 800)),
       padding: const WidgetStatePropertyAll(
         EdgeInsets.symmetric(horizontal: 17, vertical: 11),
       ),
       minimumSize: const WidgetStatePropertyAll(Size(0, 46)),
-      shape: WidgetStatePropertyAll(
-        RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-      ),
+      shape: WidgetStatePropertyAll(const StadiumBorder()),
       animationDuration: _motion(context, 180),
       side: secondary
           ? WidgetStatePropertyAll(BorderSide(color: dark ? _grey : _silver))
@@ -444,80 +553,74 @@ class _TextAction extends StatelessWidget {
     onPressed: onPressed,
     style: TextButton.styleFrom(
       foregroundColor: dark ? Colors.white : _regal,
-      textStyle: _type(13, weight: 800),
+      textStyle: _type(11, weight: 800),
       minimumSize: const Size(0, 44),
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+      shape: const StadiumBorder(),
     ),
     child: Text(label),
   );
 }
 
 class _Hero extends StatelessWidget {
-  const _Hero({
-    required this.startLabel,
-    required this.onStart,
-    required this.onSteps,
-  });
+  const _Hero({required this.onLogin, required this.onSteps});
 
-  final String startLabel;
-  final VoidCallback onStart;
+  final VoidCallback onLogin;
   final VoidCallback onSteps;
 
   @override
   Widget build(BuildContext context) => LayoutBuilder(
     builder: (context, box) {
-      final wide = box.maxWidth >= 900;
+      final wide = box.maxWidth >= 920;
       final headingSize = wide
-          ? (box.maxWidth * .058).clamp(51.0, 74.0)
-          : (box.maxWidth * .112).clamp(37.0, 68.0);
+          ? (box.maxWidth * .067).clamp(55.0, 88.0)
+          : (box.maxWidth * .138).clamp(38.0, 76.0);
       final intro = Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Row(
-            children: [
-              Container(width: 19, height: 2, color: _smartBlue),
-              const SizedBox(width: 10),
-              Expanded(child: _eyebrow('THE PROJECT REVIEW WORKSPACE')),
-            ],
-          ),
-          const SizedBox(height: 22),
+          _eyebrow('PROJECT REVIEWS', color: _lightBlue),
+          const SizedBox(height: 18),
           Semantics(
             header: true,
             child: Text.rich(
-              TextSpan(
-                text: 'Bring your work.\n',
+              const TextSpan(
+                text: 'Put your work\n',
                 children: [
                   TextSpan(
-                    text: 'Get it reviewed.',
-                    style: TextStyle(color: _sapphire),
+                    text: 'to the test.',
+                    style: TextStyle(color: _lightBlue),
                   ),
                 ],
               ),
-              style: _display(headingSize),
+              style: _display(headingSize - 2, color: Colors.white),
             ),
           ),
-          const SizedBox(height: 21),
+          const SizedBox(height: 20),
           ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 460),
+            constraints: const BoxConstraints(maxWidth: 430),
             child: Text(
-              'EvaLink connects students and independent creators with people who can test and evaluate their work. Share a project, invite evaluators, and get feedback you can use in your next revision.',
-              style: _type(wide ? 17 : 16, color: _indigo, height: 1.65),
+              '$cantiereName helps students and creators share their projects, ask people to try them, and see what to improve.',
+              style: _type(
+                wide ? 15 : 14,
+                color: const Color(0xFFD8E8FC),
+                height: 1.6,
+              ),
             ),
           ),
-          const SizedBox(height: 27),
+          const SizedBox(height: 26),
           Wrap(
             spacing: 10,
             runSpacing: 10,
             children: [
               _Action(
-                startLabel,
-                onPressed: onStart,
+                'Log in',
+                onPressed: onLogin,
                 icon: Icons.arrow_outward_rounded,
               ),
               _Action(
-                'How it works',
+                'See how it works',
                 onPressed: onSteps,
                 secondary: true,
+                dark: true,
                 icon: Icons.south_rounded,
               ),
             ],
@@ -527,18 +630,14 @@ class _Hero extends StatelessWidget {
       return wide
           ? Row(
               children: [
-                Expanded(flex: 9, child: intro),
-                const SizedBox(width: 44),
-                const Expanded(flex: 11, child: _Reveal(child: _HeroPhoto())),
+                Expanded(flex: 10, child: intro),
+                const SizedBox(width: 32),
+                const Expanded(flex: 12, child: _HeroPhoto()),
               ],
             )
           : Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                intro,
-                const SizedBox(height: 31),
-                const _Reveal(child: _HeroPhoto()),
-              ],
+              children: [intro, const SizedBox(height: 37), const _HeroPhoto()],
             );
     },
   );
@@ -557,106 +656,179 @@ class _HeroPhotoState extends State<_HeroPhoto> {
   @override
   Widget build(BuildContext context) => LayoutBuilder(
     builder: (context, box) {
-      final wide = box.maxWidth >= 475;
-      final height = (box.maxWidth * .81).clamp(280.0, 520.0);
+      final width = box.maxWidth;
+      final wide = width >= 450;
+      final height = (width * .75).clamp(305.0, 510.0);
+      final reduce = MediaQuery.disableAnimationsOf(context);
       return MouseRegion(
-        onEnter: (_) => setState(() => _hovered = true),
-        onExit: (_) => setState(() => _hovered = false),
+        onEnter: (_) {
+          if (!reduce) setState(() => _hovered = true);
+        },
+        onExit: (_) {
+          if (_hovered) setState(() => _hovered = false);
+        },
         child: SizedBox(
-          height: height + 32,
-          child: Stack(
-            children: [
-              Positioned(
-                top: 0,
-                left: wide ? 29 : 0,
-                right: 0,
-                bottom: 31,
-                child: ClipRRect(
-                  borderRadius: BorderRadius.circular(16),
-                  child: Stack(
-                    fit: StackFit.expand,
-                    children: [
-                      const _Photo(
-                        asset: 'team-study',
-                        description:
-                            'Students discussing work around a study table',
-                        alignment: Alignment(0, -.20),
-                      ),
-                      const DecoratedBox(
-                        decoration: BoxDecoration(
-                          gradient: LinearGradient(
-                            begin: Alignment.topCenter,
-                            end: Alignment.bottomCenter,
-                            stops: [.3, 1],
-                            colors: [Colors.transparent, Color(0xC4001233)],
-                          ),
+          height: height,
+          child: TweenAnimationBuilder<double>(
+            tween: Tween(
+              begin: reduce ? 1 : 0,
+              end: _hovered && !reduce ? 1.24 : 1,
+            ),
+            duration: _motion(context, _hovered ? 540 : 1150),
+            curve: Curves.easeOutCubic,
+            builder: (context, spread, _) => Stack(
+              clipBehavior: Clip.none,
+              children: [
+                Positioned(
+                  top: wide ? 23 : 19,
+                  left: wide ? 58 : 25,
+                  right: wide ? 31 : 17,
+                  bottom: 69,
+                  child: Transform.translate(
+                    offset: Offset((wide ? 18 : 5) * spread, -14 * spread),
+                    child: Transform.rotate(
+                      angle: (wide ? .118 : .087) * spread,
+                      alignment: Alignment.bottomCenter,
+                      child: const GlassSurface(
+                        blur: 8,
+                        radius: 25,
+                        tint: LinearGradient(
+                          begin: Alignment.topLeft,
+                          end: Alignment.bottomRight,
+                          colors: [Color(0x91D5F1FF), Color(0x505298D9)],
                         ),
+                        child: SizedBox.expand(),
                       ),
-                      Positioned(
-                        right: 18,
-                        bottom: wide ? 24 : 75,
-                        child: _eyebrow(
-                          'PROJECT COLLABORATION',
-                          color: Colors.white,
-                        ),
-                      ),
-                    ],
+                    ),
                   ),
                 ),
-              ),
-              Positioned(
-                left: wide ? 0 : 12,
-                bottom: 0,
-                width: (box.maxWidth - 24).clamp(0.0, 335.0),
-                child: AnimatedSlide(
-                  offset: _hovered && !MediaQuery.disableAnimationsOf(context)
-                      ? const Offset(.024, -.07)
-                      : Offset.zero,
-                  duration: _motion(context, 280),
-                  curve: Curves.easeOutCubic,
-                  child: DecoratedBox(
-                    decoration: BoxDecoration(
-                      color: Colors.white,
-                      border: Border.all(color: _rule),
-                      borderRadius: BorderRadius.circular(12),
-                      boxShadow: const [
-                        BoxShadow(
-                          color: Color(0x22001233),
-                          blurRadius: 22,
-                          offset: Offset(0, 10),
-                        ),
-                      ],
-                    ),
-                    child: Padding(
-                      padding: const EdgeInsets.all(15),
-                      child: Row(
-                        children: [
-                          const _IconTile(Icons.rate_review_outlined),
-                          const SizedBox(width: 12),
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                _eyebrow('SAMPLE FEEDBACK'),
-                                const SizedBox(height: 3),
-                                Text(
-                                  'Clarify what happens after submitting the form.',
-                                  style: _type(13, weight: 700, height: 1.4),
-                                ),
-                              ],
+                Positioned(
+                  top: 24 + 22 * (1 - spread),
+                  left: wide ? 36 : 2,
+                  right: wide ? 58 : 13,
+                  bottom: wide ? 53 : 61,
+                  child: Transform.rotate(
+                    angle: -.026 * spread,
+                    child: _PhotoSheet(compact: !wide),
+                  ),
+                ),
+                Positioned(
+                  bottom: (wide ? 17 : 8) + 24 * (1 - spread),
+                  left: (wide ? 11 : 10) * spread,
+                  width: (width - 22).clamp(0.0, 335.0),
+                  child: Transform.rotate(
+                    angle: -.049 * spread,
+                    child: GlassSurface(
+                      radius: 18,
+                      blur: 14,
+                      tint: const LinearGradient(
+                        begin: Alignment.topLeft,
+                        end: Alignment.bottomRight,
+                        colors: [Color(0xA532669F), Color(0xD0001233)],
+                      ),
+                      child: Padding(
+                        padding: const EdgeInsets.all(14),
+                        child: Row(
+                          children: [
+                            const _IconTile(
+                              Icons.rate_review_outlined,
+                              dark: true,
                             ),
-                          ),
-                        ],
+                            const SizedBox(width: 11),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  _eyebrow('SAMPLE REVIEW', color: _lightBlue),
+                                  const SizedBox(height: 3),
+                                  Text(
+                                    'Show a confirmation after someone books.',
+                                    style: _type(
+                                      12,
+                                      color: Colors.white,
+                                      weight: 700,
+                                      height: 1.35,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ],
+                        ),
                       ),
                     ),
                   ),
                 ),
-              ),
-            ],
+              ],
+            ),
           ),
         ),
       );
     },
+  );
+}
+
+class _PhotoSheet extends StatelessWidget {
+  const _PhotoSheet({required this.compact});
+
+  final bool compact;
+
+  @override
+  Widget build(BuildContext context) => GlassSurface(
+    radius: 24,
+    blur: 0,
+    child: Padding(
+      padding: const EdgeInsets.all(8),
+      child: Stack(
+        fit: StackFit.expand,
+        children: [
+          const ClipRRect(
+            borderRadius: BorderRadius.all(Radius.circular(17)),
+            child: _Photo(
+              asset: 'team-study',
+              description: 'Students discussing work around a study table',
+              alignment: Alignment(0, -.23),
+            ),
+          ),
+          const DecoratedBox(
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.all(Radius.circular(17)),
+              gradient: LinearGradient(
+                begin: Alignment.topCenter,
+                end: Alignment.bottomCenter,
+                stops: [.38, 1],
+                colors: [Colors.transparent, Color(0xD9001233)],
+              ),
+            ),
+          ),
+          Positioned(
+            left: 12,
+            right: 12,
+            top: compact ? 10 : null,
+            bottom: compact ? null : 15,
+            child: Align(
+              alignment: Alignment.centerRight,
+              child: DecoratedBox(
+                decoration: BoxDecoration(
+                  color: const Color(0xD0001233),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 9,
+                    vertical: 5,
+                  ),
+                  child: _eyebrow(
+                    'CAMPUS CLINIC / PROTOTYPE',
+                    color: Colors.white,
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    ),
   );
 }
 
@@ -687,8 +859,10 @@ class _ProjectTypes extends StatelessWidget {
   @override
   Widget build(BuildContext context) => DecoratedBox(
     decoration: const BoxDecoration(
-      color: Colors.white,
-      border: Border.symmetric(horizontal: BorderSide(color: _rule)),
+      color: _navy,
+      border: Border.symmetric(
+        horizontal: BorderSide(color: Color(0x668DB6DF)),
+      ),
     ),
     child: _PageWidth(
       child: Padding(
@@ -698,7 +872,7 @@ class _ProjectTypes extends StatelessWidget {
           runSpacing: 13,
           crossAxisAlignment: WrapCrossAlignment.center,
           children: [
-            _eyebrow('WHAT YOU CAN REVIEW', color: _slate),
+            _eyebrow('WHAT YOU CAN REVIEW', color: _lightBlue),
             for (final (icon, label) in const [
               (Icons.school_outlined, 'Capstones & research'),
               (Icons.view_in_ar_outlined, 'Apps & prototypes'),
@@ -708,13 +882,55 @@ class _ProjectTypes extends StatelessWidget {
               Row(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  Icon(icon, size: 17, color: _sapphire),
+                  Icon(icon, size: 17, color: _lightBlue),
                   const SizedBox(width: 8),
-                  Flexible(child: Text(label, style: _type(13, weight: 800))),
+                  Flexible(
+                    child: Text(
+                      label,
+                      style: _type(11, color: Colors.white, weight: 800),
+                    ),
+                  ),
                 ],
               ),
           ],
         ),
+      ),
+    ),
+  );
+}
+
+class _BrandStory extends StatelessWidget {
+  const _BrandStory();
+
+  @override
+  Widget build(BuildContext context) => _PageWidth(
+    child: Padding(
+      padding: const EdgeInsets.symmetric(vertical: 34),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const CantiereSymbol(size: 56),
+          const SizedBox(width: 18),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Semantics(
+                  header: true,
+                  child: Text('Why $cantiereName?', style: _display(22)),
+                ),
+                const SizedBox(height: 7),
+                ConstrainedBox(
+                  constraints: const BoxConstraints(maxWidth: 590),
+                  child: Text(
+                    '$cantiereName is Italian for “in the works.” It’s the stage when your project is ready for others to try and there’s still time to act on what they find.',
+                    style: _type(13, color: _indigo, height: 1.6),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
       ),
     ),
   );
@@ -745,7 +961,7 @@ class _SectionTitle extends StatelessWidget {
           child: Text(
             title,
             style: _display(
-              box.maxWidth < 530 ? 40 : 54,
+              box.maxWidth < 530 ? 38 : 52,
               color: dark ? Colors.white : _ink,
             ),
           ),
@@ -755,7 +971,7 @@ class _SectionTitle extends StatelessWidget {
           constraints: const BoxConstraints(maxWidth: 535),
           child: Text(
             body,
-            style: _type(16, color: dark ? _lightBlue : _indigo),
+            style: _type(14, color: dark ? _lightBlue : _indigo),
           ),
         ),
       ],
@@ -792,107 +1008,71 @@ class _WorkflowState extends State<_Workflow> {
 
   static const _steps = [
     (
-      title: 'Share the work',
+      title: 'Add your project',
       detail:
-          'Add a short brief and a link to your project. Choose a rubric so reviewers know what to assess.',
-      icon: Icons.layers_outlined,
-      panel: 'Project brief',
-      example: 'Test the appointment flow on mobile.',
-      rows: [
-        ('Project type', 'App prototype'),
-        ('Evaluation rubric', 'Usability'),
-        ('Project visibility', 'Private'),
-      ],
+          'Add a link to your work, choose a review checklist, and describe what you want reviewed.',
     ),
     (
-      title: 'Invite an evaluator',
+      title: 'Invite a reviewer',
       detail:
-          'Browse the directory for a relevant perspective and send a review request. Evaluators can accept or decline.',
-      icon: Icons.person_add_alt_outlined,
-      panel: 'Review invitation',
-      example: 'Try to book an appointment as a first-time visitor.',
-      rows: [
-        ('Perspective', 'Usability reviewer'),
-        ('Review focus', 'First-time experience'),
-        ('Invitation status', 'Accepted'),
-      ],
+          'Check a reviewer’s skills and portfolio, then send a request they can accept or decline.',
     ),
     (
-      title: 'Read the feedback',
+      title: 'Read your feedback',
       detail:
-          'See rubric scores and written observations together so you can decide what to improve in the next version.',
-      icon: Icons.rate_review_outlined,
-      panel: 'Review results',
-      example: 'Show a confirmation screen after booking.',
-      rows: [
-        ('Ease of use', '4 / 5'),
-        ('Clarity', '3 / 5'),
-        ('Suggested change', 'Confirm next steps'),
-      ],
+          'Compare scores item by item. Use the written notes to spot where people got stuck and decide what to change.',
     ),
   ];
 
   @override
-  Widget build(BuildContext context) {
-    final step = _steps[_selected];
-    return _Reveal(
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          const _SectionTitle(
-            label: 'HOW IT WORKS',
-            title: 'From a first draft to a better one.',
-            body:
-                'Follow one sample project through the three steps of an EvaLink review.',
-          ),
-          const SizedBox(height: 31),
-          LayoutBuilder(
-            builder: (context, box) {
-              final stacked = box.maxWidth < 810;
-              final buttons = Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  for (var i = 0; i < _steps.length; i++)
-                    Padding(
-                      padding: const EdgeInsets.only(bottom: 9),
-                      child: _StepButton(
-                        number: i + 1,
-                        title: _steps[i].title,
-                        detail: _steps[i].detail,
-                        selected: i == _selected,
-                        onPressed: () => _select(i, revealSample: stacked),
-                      ),
-                    ),
+  Widget build(BuildContext context) => _Reveal(
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        const _SectionTitle(
+          label: 'HOW IT WORKS',
+          title: 'Get feedback in three steps.',
+          body:
+              'Each reviewer scores the same checklist, so you can compare feedback. Pick a step to follow a sample project.',
+        ),
+        const SizedBox(height: 27),
+        LayoutBuilder(
+          builder: (context, box) {
+            final stacked = box.maxWidth < 810;
+            final sample = _ReviewSample(key: _sample, step: _selected);
+            final buttons = Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                for (var i = 0; i < _steps.length; i++) ...[
+                  _StepButton(
+                    number: i + 1,
+                    title: _steps[i].title,
+                    detail: _steps[i].detail,
+                    selected: i == _selected,
+                    onPressed: () => _select(i, revealSample: stacked),
+                  ),
+                  if (stacked && i == _selected) ...[
+                    const SizedBox(height: 8),
+                    sample,
+                  ],
+                  const SizedBox(height: 9),
                 ],
-              );
-              final sample = _ReviewSample(
-                key: _sample,
-                step: _selected,
-                panel: step.panel,
-                icon: step.icon,
-                example: step.example,
-                rows: step.rows,
-              );
-              if (stacked) {
-                return Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [buttons, const SizedBox(height: 15), sample],
-                );
-              }
-              return Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Expanded(flex: 4, child: buttons),
-                  const SizedBox(width: 24),
-                  Expanded(flex: 6, child: sample),
-                ],
-              );
-            },
-          ),
-        ],
-      ),
-    );
-  }
+              ],
+            );
+            if (stacked) return buttons;
+            return Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Expanded(flex: 4, child: buttons),
+                const SizedBox(width: 24),
+                Expanded(flex: 6, child: sample),
+              ],
+            );
+          },
+        ),
+      ],
+    ),
+  );
 }
 
 class _StepButton extends StatelessWidget {
@@ -917,7 +1097,7 @@ class _StepButton extends StatelessWidget {
       onPressed: onPressed,
       style: ButtonStyle(
         backgroundColor: WidgetStatePropertyAll(
-          selected ? _mist : Colors.white,
+          selected ? const Color(0xEFF4F9FF) : const Color(0xA9FFFFFF),
         ),
         foregroundColor: const WidgetStatePropertyAll(_sapphire),
         padding: const WidgetStatePropertyAll(EdgeInsets.all(15)),
@@ -925,7 +1105,7 @@ class _StepButton extends StatelessWidget {
         alignment: Alignment.centerLeft,
         animationDuration: _motion(context, 160),
         shape: WidgetStatePropertyAll(
-          RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+          RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
         ),
         side: WidgetStateProperty.resolveWith(
           (states) => BorderSide(
@@ -940,23 +1120,25 @@ class _StepButton extends StatelessWidget {
       ),
       child: Row(
         children: [
-          Text('0$number', style: _type(12, color: _sapphire, weight: 800)),
+          Text('0$number', style: _type(10, color: _sapphire, weight: 800)),
           const SizedBox(width: 14),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(title, style: _type(17, weight: 800)),
+                Text(title, style: _type(15, weight: 800)),
                 if (selected) ...[
                   const SizedBox(height: 6),
-                  Text(detail, style: _type(14, color: _indigo)),
+                  Text(detail, style: _type(12, color: _indigo)),
                 ],
               ],
             ),
           ),
           const SizedBox(width: 9),
           Icon(
-            selected ? Icons.arrow_forward_rounded : Icons.add_rounded,
+            selected
+                ? Icons.arrow_forward_rounded
+                : Icons.chevron_right_rounded,
             size: 18,
           ),
         ],
@@ -966,136 +1148,129 @@ class _StepButton extends StatelessWidget {
 }
 
 class _ReviewSample extends StatelessWidget {
-  const _ReviewSample({
-    super.key,
-    required this.step,
-    required this.panel,
-    required this.icon,
-    required this.example,
-    required this.rows,
-  });
+  const _ReviewSample({super.key, required this.step});
 
   final int step;
-  final String panel;
-  final IconData icon;
-  final String example;
-  final List<(String, String)> rows;
+
+  Widget _preview() => switch (step) {
+    0 => const Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        _SampleLine(
+          icon: Icons.link_rounded,
+          title: 'Project link added',
+          detail: 'Campus Clinic app prototype · Private',
+        ),
+        SizedBox(height: 10),
+        _SampleLine(
+          icon: Icons.checklist_rounded,
+          title: 'Review checklist',
+          detail: 'Ease of use and clear instructions',
+        ),
+      ],
+    ),
+    1 => const Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Row(
+          children: [
+            Expanded(
+              child: _SamplePerson(icon: Icons.person_outline, label: 'You'),
+            ),
+            Padding(
+              padding: EdgeInsets.symmetric(horizontal: 8),
+              child: Icon(
+                Icons.arrow_forward_rounded,
+                color: _sapphire,
+                size: 20,
+              ),
+            ),
+            Expanded(
+              child: _SamplePerson(
+                icon: Icons.rate_review_outlined,
+                label: 'Reviewer',
+              ),
+            ),
+          ],
+        ),
+        SizedBox(height: 10),
+        _SampleLine(
+          icon: Icons.task_alt_rounded,
+          title: 'Invite accepted',
+          detail: 'Review task: book an appointment on your phone.',
+        ),
+      ],
+    ),
+    _ => const Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        _SampleScore(label: 'Ease of use', score: 4),
+        SizedBox(height: 10),
+        _SampleScore(label: 'Clear instructions', score: 3),
+        SizedBox(height: 14),
+        _SampleLine(
+          icon: Icons.chat_bubble_outline_rounded,
+          title: 'Reviewer’s note',
+          detail: 'Show a confirmation after someone books.',
+        ),
+      ],
+    ),
+  };
 
   @override
   Widget build(BuildContext context) => LayoutBuilder(
     builder: (context, box) {
       final compact = box.maxWidth < 455;
-      return ClipRRect(
-        borderRadius: BorderRadius.circular(14),
+      return GlassSurface(
+        radius: 24,
+        blur: 0,
         child: ColoredBox(
-          color: _prussian,
+          color: const Color(0xA6002855),
           child: CustomPaint(
             painter: const _Grid(),
             child: Padding(
-              padding: EdgeInsets.all(compact ? 16 : 29),
+              padding: EdgeInsets.all(compact ? 14 : 23),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
                   Wrap(
                     alignment: WrapAlignment.spaceBetween,
                     crossAxisAlignment: WrapCrossAlignment.center,
-                    spacing: 10,
-                    runSpacing: 8,
+                    spacing: 8,
+                    runSpacing: 6,
                     children: [
-                      _eyebrow('SAMPLE PROJECT', color: _lightBlue),
+                      _eyebrow('EXAMPLE PROJECT', color: _lightBlue),
                       Text(
-                        '0${step + 1} / 03',
-                        style: _type(
-                          12,
-                          color: Colors.white,
-                          weight: 800,
-                          spacing: 1.1,
-                        ),
+                        'Step ${step + 1} of 3',
+                        style: _type(10, color: Colors.white, weight: 800),
                       ),
                     ],
                   ),
-                  const SizedBox(height: 16),
+                  const SizedBox(height: 12),
                   AnimatedSwitcher(
-                    duration: _motion(context, 260),
-                    switchInCurve: Curves.easeOutCubic,
+                    duration: _motion(context, 220),
                     layoutBuilder: (current, _) =>
                         current ?? const SizedBox.shrink(),
-                    transitionBuilder: (child, animation) => FadeTransition(
-                      opacity: animation,
-                      child: SlideTransition(
-                        position: animation.drive(
-                          Tween(begin: const Offset(.025, 0), end: Offset.zero),
-                        ),
-                        child: child,
-                      ),
-                    ),
-                    child: Container(
+                    child: GlassSurface(
                       key: ValueKey(step),
-                      width: double.infinity,
-                      padding: EdgeInsets.all(compact ? 16 : 23),
-                      decoration: BoxDecoration(
-                        color: Colors.white,
-                        borderRadius: BorderRadius.circular(10),
-                      ),
-                      child: Semantics(
-                        liveRegion: true,
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Row(
-                              children: [
-                                _IconTile(icon),
-                                const SizedBox(width: 12),
-                                Expanded(
-                                  child: Column(
-                                    crossAxisAlignment:
-                                        CrossAxisAlignment.start,
-                                    children: [
-                                      _eyebrow(panel.toUpperCase()),
-                                      Text(
-                                        'Campus Clinic',
-                                        style: _type(
-                                          23,
-                                          weight: 800,
-                                          spacing: -.8,
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                ),
-                              ],
-                            ),
-                            const SizedBox(height: 15),
-                            Text(example, style: _type(15, color: _indigo)),
-                            const SizedBox(height: 15),
-                            for (final (label, value) in rows) ...[
-                              const Divider(height: 1, color: _rule),
-                              Padding(
-                                padding: const EdgeInsets.symmetric(
-                                  vertical: 8,
-                                ),
-                                child: Row(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    Expanded(
-                                      child: Text(
-                                        label,
-                                        style: _type(13, color: _slate),
-                                      ),
-                                    ),
-                                    const SizedBox(width: 10),
-                                    Expanded(
-                                      child: Text(
-                                        value,
-                                        textAlign: TextAlign.end,
-                                        style: _type(13, weight: 800),
-                                      ),
-                                    ),
-                                  ],
-                                ),
+                      radius: 15,
+                      dark: false,
+                      blur: 0,
+                      child: Padding(
+                        padding: EdgeInsets.all(compact ? 13 : 19),
+                        child: Semantics(
+                          liveRegion: true,
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.stretch,
+                            children: [
+                              Text(
+                                'Campus Clinic',
+                                style: _type(21, weight: 800, spacing: -.6),
                               ),
+                              const SizedBox(height: 12),
+                              _preview(),
                             ],
-                          ],
+                          ),
                         ),
                       ),
                     ),
@@ -1107,6 +1282,108 @@ class _ReviewSample extends StatelessWidget {
         ),
       );
     },
+  );
+}
+
+class _SampleLine extends StatelessWidget {
+  const _SampleLine({
+    required this.icon,
+    required this.title,
+    required this.detail,
+  });
+
+  final IconData icon;
+  final String title;
+  final String detail;
+
+  @override
+  Widget build(BuildContext context) => DecoratedBox(
+    decoration: BoxDecoration(
+      color: const Color(0xBFFFFFFF),
+      borderRadius: BorderRadius.circular(11),
+    ),
+    child: Padding(
+      padding: const EdgeInsets.all(10),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(icon, size: 20, color: _sapphire),
+          const SizedBox(width: 9),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(title, style: _type(12, weight: 800)),
+                const SizedBox(height: 2),
+                Text(detail, style: _type(11, color: _indigo)),
+              ],
+            ),
+          ),
+        ],
+      ),
+    ),
+  );
+}
+
+class _SamplePerson extends StatelessWidget {
+  const _SamplePerson({required this.icon, required this.label});
+
+  final IconData icon;
+  final String label;
+
+  @override
+  Widget build(BuildContext context) => DecoratedBox(
+    decoration: BoxDecoration(
+      color: const Color(0xBFFFFFFF),
+      borderRadius: BorderRadius.circular(11),
+    ),
+    child: Padding(
+      padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 3),
+      child: Column(
+        children: [
+          Icon(icon, size: 21, color: _sapphire),
+          const SizedBox(height: 4),
+          Text(
+            label,
+            textAlign: TextAlign.center,
+            style: _type(11, weight: 800),
+          ),
+        ],
+      ),
+    ),
+  );
+}
+
+class _SampleScore extends StatelessWidget {
+  const _SampleScore({required this.label, required this.score});
+
+  final String label;
+  final int score;
+
+  @override
+  Widget build(BuildContext context) => Column(
+    crossAxisAlignment: CrossAxisAlignment.stretch,
+    children: [
+      Wrap(
+        alignment: WrapAlignment.spaceBetween,
+        spacing: 8,
+        runSpacing: 3,
+        children: [
+          Text(label, style: _type(11, weight: 700)),
+          Text('$score / 5', style: _type(11, weight: 800, color: _regal)),
+        ],
+      ),
+      const SizedBox(height: 5),
+      ExcludeSemantics(
+        child: LinearProgressIndicator(
+          value: score / 5,
+          minHeight: 7,
+          backgroundColor: const Color(0xFFCBDDF1),
+          color: _smartBlue,
+          borderRadius: BorderRadius.circular(5),
+        ),
+      ),
+    ],
   );
 }
 
@@ -1151,10 +1428,7 @@ class _IconTile extends StatelessWidget {
 }
 
 class _Audience extends StatelessWidget {
-  const _Audience({required this.startLabel, required this.onStart});
-
-  final String startLabel;
-  final VoidCallback onStart;
+  const _Audience();
 
   @override
   Widget build(BuildContext context) => _Reveal(
@@ -1162,10 +1436,10 @@ class _Audience extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         const _SectionTitle(
-          label: 'WHO IT’S FOR',
-          title: 'Two sides of a good review.',
+          label: 'WHO CAN JOIN',
+          title: 'Share or review a project.',
           body:
-              'Creators bring the work and the questions. Evaluators bring practical experience, domain knowledge, or a fresh pair of eyes.',
+              'Students, creators, and reviewers can take part from anywhere.',
         ),
         const SizedBox(height: 32),
         LayoutBuilder(
@@ -1173,18 +1447,18 @@ class _Audience extends StatelessWidget {
             const creator = _AudienceCard(
               number: '01',
               label: 'FOR STUDENTS & CREATORS',
-              title: 'Know what to improve.',
+              title: 'Share your work.',
               detail:
-                  'Prepare for a capstone presentation, test an early prototype, or learn where people get stuck in your game. Use the review to decide what to change before you share it more widely.',
+                  'Share a capstone, prototype, or game. Ask reviewers to try it and tell you where they got stuck.',
               photo: 'creator-notes',
               description: 'A student making notes beside a laptop',
             );
             const reviewer = _AudienceCard(
               number: '02',
-              label: 'FOR EVALUATORS',
-              title: 'Bring your perspective.',
+              label: 'FOR REVIEWERS',
+              title: 'Review someone’s work.',
               detail:
-                  'Review as a peer, practitioner, subject-matter expert, or a first-time user. Follow the project brief and rubric, then explain what worked and where the creator can make a change.',
+                  'Try the project as a peer, expert, or first-time user. Follow the checklist and explain what worked and what could improve.',
               photo: 'review-discussion',
               description: 'A group discussing a project around a laptop',
             );
@@ -1204,14 +1478,12 @@ class _Audience extends StatelessWidget {
             );
           },
         ),
-        const SizedBox(height: 21),
-        _TextAction(startLabel, onPressed: onStart),
       ],
     ),
   );
 }
 
-class _AudienceCard extends StatelessWidget {
+class _AudienceCard extends StatefulWidget {
   const _AudienceCard({
     required this.number,
     required this.label,
@@ -1229,38 +1501,63 @@ class _AudienceCard extends StatelessWidget {
   final String description;
 
   @override
-  Widget build(BuildContext context) => DecoratedBox(
-    decoration: BoxDecoration(
-      color: Colors.white,
-      border: Border.all(color: _rule),
-      borderRadius: BorderRadius.circular(14),
-    ),
-    child: ClipRRect(
-      borderRadius: BorderRadius.circular(14),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          AspectRatio(
-            aspectRatio: 2.15,
-            child: _Photo(asset: photo, description: description),
-          ),
-          Padding(
-            padding: const EdgeInsets.all(22),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                _eyebrow('$number   /   $label'),
-                const SizedBox(height: 9),
-                Semantics(
-                  header: true,
-                  child: Text(title, style: _display(32)),
+  State<_AudienceCard> createState() => _AudienceCardState();
+}
+
+class _AudienceCardState extends State<_AudienceCard> {
+  bool _hovered = false;
+
+  @override
+  Widget build(BuildContext context) => MouseRegion(
+    onEnter: (_) => setState(() => _hovered = true),
+    onExit: (_) => setState(() => _hovered = false),
+    child: GlassSurface(
+      dark: false,
+      blur: 0,
+      radius: 23,
+      child: Padding(
+        padding: const EdgeInsets.all(6),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            AspectRatio(
+              aspectRatio: 2.15,
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(17),
+                child: AnimatedScale(
+                  scale: _hovered && !MediaQuery.disableAnimationsOf(context)
+                      ? 1.045
+                      : 1,
+                  duration: _motion(context, 320),
+                  curve: Curves.easeOutCubic,
+                  child: _Photo(
+                    asset: widget.photo,
+                    description: widget.description,
+                  ),
                 ),
-                const SizedBox(height: 10),
-                Text(detail, style: _type(15, color: _indigo, height: 1.6)),
-              ],
+              ),
             ),
-          ),
-        ],
+            Padding(
+              padding: const EdgeInsets.all(22),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  _eyebrow('${widget.number}   /   ${widget.label}'),
+                  const SizedBox(height: 9),
+                  Semantics(
+                    header: true,
+                    child: Text(widget.title, style: _display(30)),
+                  ),
+                  const SizedBox(height: 10),
+                  Text(
+                    widget.detail,
+                    style: _type(13, color: _indigo, height: 1.6),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
       ),
     ),
   );
@@ -1277,12 +1574,12 @@ class _Trust extends StatelessWidget {
     ),
     (
       Icons.badge_outlined,
-      'Understand evaluator profiles',
-      'Evaluator expertise and portfolio links are self-reported. Use the profile to see whether the person has a perspective that fits your project.',
+      'Check reviewer profiles',
+      'Reviewers list their own skills and portfolio links. Check their profile to see if they fit your project.',
     ),
     (
       Icons.fact_check_outlined,
-      'Set expectations for reviews',
+      'Disclose conflicts and report concerns',
       'Evaluators declare conflicts of interest when submitting a review. Signed-in members can report community projects for moderation.',
     ),
   ];
@@ -1292,45 +1589,60 @@ class _Trust extends StatelessWidget {
     child: LayoutBuilder(
       builder: (context, box) {
         const introduction = _SectionTitle(
-          label: 'TRUST & ACCESS',
-          title: 'Share with intention.',
-          body: 'Decide who can see the work and what you want them to assess.',
+          label: 'SAFETY',
+          title: 'Privacy and safety.',
+          body:
+              'Choose who can see your project and learn who is reviewing it.',
           dark: true,
         );
-        final features = Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            for (final (icon, title, detail) in _features) ...[
-              const Divider(height: 1, color: _indigo),
-              Padding(
-                padding: const EdgeInsets.symmetric(vertical: 16),
-                child: Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    _IconTile(icon, dark: true),
-                    const SizedBox(width: 13),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            title,
-                            style: _type(17, color: Colors.white, weight: 800),
+        final features = GlassSurface(
+          blur: 0,
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 10),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                for (final (icon, title, detail) in _features) ...[
+                  const Divider(height: 1, color: _indigo),
+                  Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 16),
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        _IconTile(icon, dark: true),
+                        const SizedBox(width: 13),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                title,
+                                style: _type(
+                                  15,
+                                  color: Colors.white,
+                                  weight: 800,
+                                ),
+                              ),
+                              const SizedBox(height: 4),
+                              Text(
+                                detail,
+                                style: _type(
+                                  12,
+                                  color: _lightBlue,
+                                  height: 1.6,
+                                ),
+                              ),
+                            ],
                           ),
-                          const SizedBox(height: 4),
-                          Text(
-                            detail,
-                            style: _type(14, color: _lightBlue, height: 1.6),
-                          ),
-                        ],
-                      ),
+                        ),
+                      ],
                     ),
-                  ],
-                ),
-              ),
-            ],
-            const Divider(height: 1, color: _indigo),
-          ],
+                  ),
+                ],
+                const Divider(height: 1, color: _indigo),
+              ],
+            ),
+          ),
         );
         if (box.maxWidth < 830) {
           return Column(
@@ -1351,84 +1663,160 @@ class _Trust extends StatelessWidget {
   );
 }
 
-class _Questions extends StatelessWidget {
+class _Questions extends StatefulWidget {
   const _Questions();
+
+  @override
+  State<_Questions> createState() => _QuestionsState();
+}
+
+class _QuestionsState extends State<_Questions> {
+  int? _open;
+
+  static const _answerPadding = EdgeInsets.fromLTRB(5, 0, 5, 13);
+  static const _panelPadding = EdgeInsets.symmetric(
+    horizontal: 18,
+    vertical: 9,
+  );
 
   static const _items = [
     (
-      'Do I need a school affiliation?',
-      'EvaLink is for student teams and independent creators, as well as peers and professionals who want to review projects remotely.',
+      'Do I need to be a student?',
+      'No. Students, independent creators, and reviewers can take part from anywhere.',
     ),
     (
-      'What can I submit?',
-      'You can share research, a capstone, a playable build, a design, or another project using an HTTPS link that your invited reviewers can access.',
+      'What can I share?',
+      'Share a link to a capstone, research project, prototype, game, or design. Make sure the people you invite can open it.',
     ),
     (
-      'What is a rubric?',
-      'A rubric is a list of things to assess, such as clarity or ease of use. Reviewers use the same criteria and can explain their scores in writing.',
+      'What is a review checklist?',
+      'A review checklist, called a rubric in the workspace, lists what to check. Reviewers give each item a score and can explain their feedback.',
     ),
     (
-      'Can I try it before creating an account?',
-      'Yes. The demo uses fictional projects and evaluators, so you can explore the workspace and try the review flow.',
+      'Who can see my project?',
+      'Keep it private, invite specific reviewers, or share it with signed-in members. Set permissions for linked files separately.',
     ),
   ];
 
-  @override
-  Widget build(BuildContext context) => _Reveal(
-    child: LayoutBuilder(
-      builder: (context, box) {
-        const heading = _SectionTitle(
-          label: 'FAQ',
-          title: 'A few things to know.',
-          body: 'The basics before you share a project or start reviewing.',
-        );
-        final questions = Theme(
-          data: Theme.of(context).copyWith(dividerColor: Colors.transparent),
-          child: Column(
-            children: [
-              for (final (question, answer) in _items) ...[
-                const Divider(height: 1, color: _rule),
-                ExpansionTile(
-                  title: Text(question, style: _type(15, weight: 800)),
-                  tilePadding: const EdgeInsets.symmetric(
-                    horizontal: 4,
-                    vertical: 3,
-                  ),
-                  childrenPadding: const EdgeInsets.fromLTRB(4, 0, 23, 16),
-                  expandedCrossAxisAlignment: CrossAxisAlignment.stretch,
-                  iconColor: _sapphire,
-                  collapsedIconColor: _sapphire,
-                  expansionAnimationStyle:
-                      MediaQuery.disableAnimationsOf(context)
-                      ? AnimationStyle.noAnimation
-                      : const AnimationStyle(
-                          duration: Duration(milliseconds: 220),
+  double _answerHeight(
+    BuildContext context,
+    String answer,
+    TextStyle style,
+    double width,
+  ) {
+    final defaults = DefaultTextStyle.of(context);
+    final painter = TextPainter(
+      text: TextSpan(text: answer, style: defaults.style.merge(style)),
+      textScaler: MediaQuery.textScalerOf(context),
+      textDirection: Directionality.of(context),
+      textHeightBehavior: defaults.textHeightBehavior,
+      locale: Localizations.maybeLocaleOf(context),
+    )..layout(maxWidth: width);
+    final height = painter.height + _answerPadding.vertical;
+    painter.dispose();
+    return height;
+  }
+
+  Widget _accordion() => LayoutBuilder(
+    builder: (context, box) {
+      final answerStyle = _type(12, color: _indigo, height: 1.6);
+      final width =
+          (box.maxWidth - _panelPadding.horizontal - _answerPadding.horizontal)
+              .clamp(0.0, double.infinity);
+      final heights = [
+        for (final (_, answer) in _items)
+          _answerHeight(context, answer, answerStyle, width),
+      ];
+      final reserved = heights.reduce((a, b) => a > b ? a : b);
+      final shown = _open == null ? 0.0 : heights[_open!];
+
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          GlassSurface(
+            dark: false,
+            blur: 0,
+            child: Padding(
+              padding: _panelPadding,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  for (var index = 0; index < _items.length; index++) ...[
+                    if (index > 0) const Divider(height: 1, color: _rule),
+                    Semantics(
+                      expanded: _open == index,
+                      child: TextButton(
+                        onPressed: () => setState(
+                          () => _open = _open == index ? null : index,
                         ),
-                  children: [
-                    Text(answer, style: _type(14, color: _indigo, height: 1.6)),
+                        style: TextButton.styleFrom(
+                          minimumSize: const Size(0, 46),
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 5,
+                            vertical: 9,
+                          ),
+                          foregroundColor: _sapphire,
+                        ),
+                        child: Row(
+                          children: [
+                            Expanded(
+                              child: Text(
+                                _items[index].$1,
+                                style: _type(13, weight: 800),
+                              ),
+                            ),
+                            const SizedBox(width: 10),
+                            Icon(
+                              _open == index
+                                  ? Icons.expand_less
+                                  : Icons.expand_more,
+                              size: 20,
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                    if (_open == index)
+                      Padding(
+                        padding: _answerPadding,
+                        child: Text(_items[index].$2, style: answerStyle),
+                      ),
                   ],
-                ),
-              ],
-              const Divider(height: 1, color: _rule),
-            ],
+                ],
+              ),
+            ),
           ),
+          // Use the space below the card so expanding an answer keeps the footer still.
+          SizedBox(height: reserved - shown),
+        ],
+      );
+    },
+  );
+
+  @override
+  Widget build(BuildContext context) => LayoutBuilder(
+    builder: (context, box) {
+      final stacked = box.maxWidth < 830;
+      final heading = Semantics(
+        header: true,
+        child: Text('Common questions', style: _display(stacked ? 36 : 48)),
+      );
+      final questions = _accordion();
+      if (stacked) {
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [heading, const SizedBox(height: 22), questions],
         );
-        if (box.maxWidth < 830) {
-          return Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [heading, const SizedBox(height: 22), questions],
-          );
-        }
-        return Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Expanded(flex: 4, child: heading),
-            const SizedBox(width: 34),
-            Expanded(flex: 6, child: questions),
-          ],
-        );
-      },
-    ),
+      }
+      return Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Expanded(flex: 4, child: heading),
+          const SizedBox(width: 34),
+          Expanded(flex: 6, child: questions),
+        ],
+      );
+    },
   );
 }
 

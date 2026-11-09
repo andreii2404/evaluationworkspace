@@ -1,5 +1,5 @@
 name: evaluationworkspace
-description: "Evalink web prototype for project evaluation and structured feedback."
+description: "In Cantiere is a web workspace for project testing and structured feedback."
 # The following line prevents the package from being accidentally published to
 # pub.dev using `flutter pub publish`. This is preferred for private packages.
 publish_to: 'none' # Remove this line if you wish to publish to pub.dev
@@ -63,13 +63,20 @@ flutter:
   assets:
     - assets/auth/google-g.png
     - assets/landing/team-study.webp
+    - assets/landing/waterline.webp
     - assets/landing/creator-notes.webp
     - assets/landing/review-discussion.webp
     - assets/landing/Manrope-OFL.txt
+    - assets/brand/OFL.txt
   fonts:
     - family: Manrope
       fonts:
         - asset: assets/landing/Manrope.ttf
+    - family: Instrument Serif
+      fonts:
+        - asset: assets/brand/InstrumentSerif-Regular.ttf
+        - asset: assets/brand/InstrumentSerif-Italic.ttf
+          style: italic
 
   # To add assets to your application, add an assets section, like this:
   # assets:

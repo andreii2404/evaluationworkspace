@@ -4,6 +4,7 @@ import 'package:url_launcher/url_launcher.dart';
 
 import '../app_theme.dart';
 import '../services/cloud_repository.dart';
+import '../widgets/cantiere_wordmark.dart';
 import 'workspace_forms.dart';
 
 enum _Area {
@@ -100,7 +101,7 @@ class _CloudWorkspaceState extends State<CloudWorkspace> {
           children: [
             const Padding(
               padding: EdgeInsets.fromLTRB(22, 20, 18, 25),
-              child: EvalinkMark(),
+              child: CantiereWordmark(dark: false),
             ),
             for (final area in areas)
               Padding(
@@ -112,6 +113,8 @@ class _CloudWorkspaceState extends State<CloudWorkspace> {
                   selected: _area == area,
                   selectedTileColor: mint,
                   selectedColor: teal,
+                  hoverColor: mint.withValues(alpha: .52),
+                  focusColor: mint.withValues(alpha: .72),
                   shape: RoundedRectangleBorder(
                     borderRadius: BorderRadius.circular(11),
                   ),

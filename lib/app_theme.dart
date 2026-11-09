@@ -20,7 +20,7 @@ ThemeData evalinkTheme() {
     outlineVariant: line,
   );
   final border = OutlineInputBorder(borderRadius: BorderRadius.circular(12));
-  return ThemeData(
+  final theme = ThemeData(
     colorScheme: scheme,
     scaffoldBackgroundColor: canvas,
     fontFamily: 'Arial',
@@ -41,26 +41,12 @@ ThemeData evalinkTheme() {
     ),
     snackBarTheme: const SnackBarThemeData(behavior: SnackBarBehavior.floating),
   );
-}
-
-class EvalinkMark extends StatelessWidget {
-  const EvalinkMark({super.key});
-
-  @override
-  Widget build(BuildContext context) => const Row(
-    mainAxisSize: MainAxisSize.min,
-    children: [
-      Icon(Icons.hub_outlined, size: 22, color: teal),
-      SizedBox(width: 8),
-      Text(
-        'evalink',
-        style: TextStyle(
-          color: ink,
-          fontSize: 24,
-          fontWeight: FontWeight.w800,
-          letterSpacing: -1.4,
-        ),
-      ),
-    ],
+  final typography = theme.typography;
+  return theme.copyWith(
+    typography: typography.copyWith(
+      englishLike: typography.englishLike.apply(fontSizeDelta: -2),
+      dense: typography.dense.apply(fontSizeDelta: -2),
+      tall: typography.tall.apply(fontSizeDelta: -2),
+    ),
   );
 }
