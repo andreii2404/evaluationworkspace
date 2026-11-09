@@ -1,8 +1,14 @@
 import 'dart:math' as math;
-import 'dart:ui' show ImageFilter, lerpDouble;
+import 'dart:ui'
+    show
+        FragmentProgram,
+        FragmentShader,
+        ImageFilter,
+        PointerDeviceKind,
+        lerpDouble;
 
-import 'package:flutter/foundation.dart' show ValueListenable;
 import 'package:flutter/material.dart';
+import 'package:flutter/scheduler.dart';
 import 'package:flutter/services.dart';
 
 /// A clipped, tinted surface with a bright upper rim and a blue lower edge.
@@ -102,14 +108,14 @@ class LiquidGlassNav extends StatefulWidget {
 }
 
 class _LiquidGlassNavState extends State<LiquidGlassNav>
-    with SingleTickerProviderStateMixin {
+    with TickerProviderStateMixin {
   static const _inset = 4.0;
   late final _motion = AnimationController(
     vsync: this,
     duration: const Duration(milliseconds: 720),
     value: 1,
   );
-  final _pointer = ValueNotifier<Offset?>(null);
+  late final _pointer = _WaterPointer(createTicker);
   late final _repaint = Listenable.merge([_motion, _pointer]);
   late final _focusNodes = [
     for (final item in widget.items) FocusNode(debugLabel: item.label),
@@ -117,6 +123,24 @@ class _LiquidGlassNavState extends State<LiquidGlassNav>
   late double _origin = widget.active.toDouble();
   int? _focused;
   bool _reduceMotion = false;
+  FragmentShader? _shader;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadShader();
+  }
+
+  Future<void> _loadShader() async {
+    try {
+      final program = await FragmentProgram.fromAsset(
+        'assets/landing/waterline.frag',
+      );
+      if (mounted) setState(() => _shader = program.fragmentShader());
+    } catch (_) {
+      // The painted drop is available while the shader loads or if it fails.
+    }
+  }
 
   @override
   void didChangeDependencies() {
@@ -124,7 +148,7 @@ class _LiquidGlassNavState extends State<LiquidGlassNav>
     _reduceMotion = MediaQuery.disableAnimationsOf(context);
     if (_reduceMotion) {
       _motion.value = 1;
-      _pointer.value = null;
+      _pointer.clear();
     }
   }
 
@@ -177,6 +201,7 @@ class _LiquidGlassNavState extends State<LiquidGlassNav>
   void dispose() {
     _motion.dispose();
     _pointer.dispose();
+    _shader?.dispose();
     for (final node in _focusNodes) {
       node.dispose();
     }
@@ -193,29 +218,39 @@ class _LiquidGlassNavState extends State<LiquidGlassNav>
       onKeyEvent: _arrowKey,
       child: MouseRegion(
         onHover: (event) {
-          if (!_reduceMotion) _pointer.value = event.localPosition;
+          if (!_reduceMotion && event.kind == PointerDeviceKind.mouse) {
+            _pointer.move(event.localPosition);
+          }
         },
-        onExit: (_) => _pointer.value = null,
-        child: GlassSurface(
-          radius: 40,
-          blur: 0,
-          child: RepaintBoundary(
-            child: CustomPaint(
-              painter: _Waterline(
-                animation: _motion,
-                pointer: _pointer,
-                repaint: _repaint,
-                count: widget.items.length,
-                origin: _origin,
-                active: widget.active,
-              ),
-              child: Padding(
-                padding: const EdgeInsets.all(_inset),
-                child: Row(
-                  children: [
-                    for (var index = 0; index < widget.items.length; index++)
-                      Expanded(child: _button(index)),
-                  ],
+        onExit: (_) => _pointer.leave(),
+        child: Listener(
+          onPointerDown: (event) {
+            if (!_reduceMotion) _pointer.press(event.localPosition);
+          },
+          child: GlassSurface(
+            radius: 40,
+            blur: 0,
+            child: RepaintBoundary(
+              child: CustomPaint(
+                painter: _Waterline(
+                  animation: _motion,
+                  pointer: _pointer,
+                  shader: _reduceMotion || MediaQuery.highContrastOf(context)
+                      ? null
+                      : _shader,
+                  repaint: _repaint,
+                  count: widget.items.length,
+                  origin: _origin,
+                  active: widget.active,
+                ),
+                child: Padding(
+                  padding: const EdgeInsets.all(_inset),
+                  child: Row(
+                    children: [
+                      for (var index = 0; index < widget.items.length; index++)
+                        Expanded(child: _button(index)),
+                    ],
+                  ),
                 ),
               ),
             ),
@@ -228,7 +263,21 @@ class _LiquidGlassNavState extends State<LiquidGlassNav>
   Widget _button(int index) {
     final item = widget.items[index];
     final selected = index == widget.active;
-    final icon = Icon(item.icon, size: widget.compact ? 20 : 16);
+    Widget icon = Icon(item.icon, size: widget.compact ? 20 : 16);
+    if (selected && !_reduceMotion) {
+      icon = AnimatedBuilder(
+        animation: _motion,
+        child: icon,
+        builder: (context, child) {
+          final t = _motion.value;
+          final spring = math.sin(t * 3 * math.pi) * (1 - t);
+          return Transform.translate(
+            offset: Offset(0, -1 - 3.8 * spring),
+            child: Transform.scale(scale: 1.08 + .13 * spring, child: child),
+          );
+        },
+      );
+    }
     final label = widget.compact
         ? icon
         : Wrap(
@@ -246,32 +295,37 @@ class _LiquidGlassNavState extends State<LiquidGlassNav>
         if (focused) _focused = index;
       },
       onPressed: () => _select(index),
-      style: TextButton.styleFrom(
-        foregroundColor: selected ? Colors.white : const Color(0xFFD5E7FF),
-        overlayColor: const Color(0xFFB9D9FF),
-        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-        minimumSize: const Size(0, 44),
-        padding: const EdgeInsets.symmetric(horizontal: 2, vertical: 5),
-        textStyle: const TextStyle(
-          fontFamily: 'Manrope',
-          fontSize: 10,
-          fontWeight: FontWeight.w700,
-        ),
-      ),
-      child: selected && !_reduceMotion
-          ? AnimatedBuilder(
-              animation: _motion,
-              child: label,
-              builder: (context, child) {
-                final t = _motion.value;
-                final spring = math.sin(t * 3 * math.pi) * (1 - t);
-                return Transform.translate(
-                  offset: Offset(0, -3.8 * spring),
-                  child: Transform.scale(scale: 1 + .13 * spring, child: child),
-                );
-              },
-            )
-          : label,
+      style:
+          TextButton.styleFrom(
+            splashFactory: NoSplash.splashFactory,
+            overlayColor: Colors.transparent,
+            animationDuration: _reduceMotion
+                ? Duration.zero
+                : const Duration(milliseconds: 250),
+            tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+            minimumSize: const Size(0, 44),
+            padding: const EdgeInsets.symmetric(horizontal: 2, vertical: 5),
+            textStyle: const TextStyle(
+              fontFamily: 'Manrope',
+              fontSize: 10,
+              fontWeight: FontWeight.w700,
+            ),
+          ).copyWith(
+            foregroundColor: WidgetStateProperty.resolveWith(
+              (states) =>
+                  selected ||
+                      states.contains(WidgetState.hovered) ||
+                      states.contains(WidgetState.focused)
+                  ? const Color(0xFFF1F7FF)
+                  : const Color(0xFFB9CBE2),
+            ),
+            side: WidgetStateProperty.resolveWith(
+              (states) => states.contains(WidgetState.focused)
+                  ? const BorderSide(color: Color(0xFFB9D9FF), width: 1.5)
+                  : BorderSide.none,
+            ),
+          ),
+      child: label,
     );
     return Semantics(
       selected: selected,
@@ -287,10 +341,80 @@ class _LiquidGlassNavState extends State<LiquidGlassNav>
   }
 }
 
+class _WaterPointer extends ChangeNotifier {
+  _WaterPointer(Ticker Function(TickerCallback) createTicker) {
+    _ticker = createTicker(_tick);
+  }
+
+  late final Ticker _ticker;
+  Duration _lastTick = Duration.zero;
+  bool _inside = false;
+  Offset position = Offset.zero;
+  double strength = 0;
+  double time = 0;
+  Offset? tap;
+  double tapAge = 0;
+
+  void move(Offset point) {
+    position = point;
+    _inside = true;
+    _wake();
+  }
+
+  void leave() => _inside = false;
+
+  void press(Offset point) {
+    tap = point;
+    tapAge = 0;
+    _wake();
+  }
+
+  void _wake() {
+    if (_ticker.isActive) return;
+    _lastTick = Duration.zero;
+    _ticker.start();
+  }
+
+  void _tick(Duration elapsed) {
+    final dt = math.min(
+      (elapsed - _lastTick).inMicroseconds / Duration.microsecondsPerSecond,
+      1 / 30,
+    );
+    _lastTick = elapsed;
+    time += dt;
+    final target = _inside ? 1.0 : 0.0;
+    strength += (target - strength) * math.min(1, dt * 7);
+    if (tap != null) {
+      tapAge += dt;
+      if (tapAge >= 2.4) tap = null;
+    }
+    if (!_inside && strength < .01 && tap == null) {
+      strength = 0;
+      _ticker.stop();
+    }
+    notifyListeners();
+  }
+
+  void clear() {
+    _inside = false;
+    strength = 0;
+    tap = null;
+    _ticker.stop();
+    notifyListeners();
+  }
+
+  @override
+  void dispose() {
+    _ticker.dispose();
+    super.dispose();
+  }
+}
+
 class _Waterline extends CustomPainter {
   _Waterline({
     required this.animation,
     required this.pointer,
+    required this.shader,
     required Listenable repaint,
     required this.count,
     required this.origin,
@@ -298,7 +422,8 @@ class _Waterline extends CustomPainter {
   }) : super(repaint: repaint);
 
   final Animation<double> animation;
-  final ValueListenable<Offset?> pointer;
+  final _WaterPointer pointer;
+  final FragmentShader? shader;
   final int count;
   final double origin;
   final int active;
@@ -327,6 +452,44 @@ class _Waterline extends CustomPainter {
     final gap = (lead - tail).abs();
     final height = size.height - 2 * inset;
     final split = gap > slot * .88;
+    if (shader case final effect?) {
+      final radius = math.min(height, slot - 2) / 2;
+      final straight = math.max(0.0, slot / 2 - radius - 1);
+      final thin = math.min(gap / (2 * (straight + radius)), 1.0);
+      final tap = pointer.tap ?? Offset.zero;
+      // Uniforms follow the declaration order in waterline.frag.
+      final uniforms = [
+        size.width,
+        size.height,
+        lead,
+        y,
+        straight * (1 - .25 * thin),
+        radius * (1 - .12 * thin),
+        tail,
+        y,
+        straight * (1 - .8 * thin),
+        radius * (1 - .5 * thin),
+        1 - .16 * math.sin(t * math.pi),
+        split ? math.sin(t * math.pi) : 0.0,
+        pointer.time,
+        pointer.position.dx,
+        pointer.position.dy,
+        pointer.strength,
+        tap.dx,
+        tap.dy,
+        pointer.tapAge,
+        pointer.tap == null ? 0.0 : .8,
+        lead,
+        y,
+        t * .72,
+        t > .08 && t < 1 ? .7 * (1 - t) : 0.0,
+      ];
+      for (var i = 0; i < uniforms.length; i++) {
+        effect.setFloat(i, uniforms[i]);
+      }
+      canvas.drawRect(Offset.zero & size, Paint()..shader = effect);
+      return;
+    }
     final trail = split ? lead : tail;
     final bounds = Rect.fromLTRB(
       math.min(lead, trail) - slot * .5 + 1,
@@ -383,13 +546,17 @@ class _Waterline extends CustomPainter {
           ..color = Colors.white.withValues(alpha: (1 - t) * .48),
       );
     }
-    if (pointer.value case final point?) {
+    if (pointer.strength > 0) {
+      final point = pointer.position;
       canvas.drawCircle(
         point,
         29,
         Paint()
           ..shader = RadialGradient(
-            colors: [Colors.white.withValues(alpha: .32), Colors.transparent],
+            colors: [
+              Colors.white.withValues(alpha: .22 * pointer.strength),
+              Colors.transparent,
+            ],
           ).createShader(Rect.fromCircle(center: point, radius: 29)),
       );
     }
@@ -397,6 +564,7 @@ class _Waterline extends CustomPainter {
 
   @override
   bool shouldRepaint(_Waterline oldDelegate) =>
+      oldDelegate.shader != shader ||
       oldDelegate.origin != origin ||
       oldDelegate.active != active ||
       oldDelegate.count != count;
