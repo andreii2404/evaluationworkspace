@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../data/sample_data.dart';
 import '../models/workspace_models.dart';
 import '../services/workspace_repository.dart';
+import '../widgets/app_notice.dart';
 
 const _ink = Color(0xFF17283F);
 const _muted = Color(0xFF475467);
@@ -50,11 +51,7 @@ class _WorkspaceScreenState extends State<WorkspaceScreen> {
 
   Future<void> _saveProjects() => _repository.saveProjects(_projects);
 
-  void _notify(String message) {
-    ScaffoldMessenger.of(context)
-      ..hideCurrentSnackBar()
-      ..showSnackBar(SnackBar(content: Text(message)));
-  }
+  void _notify(String message) => AppNotice.show(context, message);
 
   Future<void> _createProject() async {
     final project = await showDialog<EvaluationProject>(
@@ -2338,13 +2335,7 @@ class _EvaluatorsViewState extends State<_EvaluatorsView> {
     EvaluatorProfile evaluator,
   ) async {
     if (widget.projects.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text(
-            'Create a project first so you can choose where to save an invitation.',
-          ),
-        ),
-      );
+      AppNotice.show(context, 'Create a project first to send an invitation.');
       return;
     }
     final project = await showDialog<EvaluationProject>(
@@ -2911,16 +2902,18 @@ class _ReviewDialogState extends State<_ReviewDialog> {
 
   void _submit() {
     if (_rating == 0) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Choose a rating before saving.')),
+      AppNotice.show(
+        context,
+        'Choose a rating before saving.',
+        tone: NoticeTone.error,
       );
       return;
     }
     if (_commentController.text.trim().length < 8) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Add a little more detail to your feedback.'),
-        ),
+      AppNotice.show(
+        context,
+        'Add a little more detail to your feedback.',
+        tone: NoticeTone.error,
       );
       return;
     }

@@ -5,15 +5,15 @@ import 'package:url_launcher/url_launcher.dart';
 
 import '../app_theme.dart';
 import '../services/cloud_repository.dart';
+import '../services/questionnaire_data.dart';
+import '../services/questionnaire_picker.dart'
+    if (dart.library.js_interop) '../services/questionnaire_picker_web.dart';
+import '../widgets/app_notice.dart';
 import '../widgets/cantiere_wordmark.dart';
+import '../widgets/evaluation_backdrop.dart';
 import '../widgets/liquid_glass.dart';
+import 'questionnaire_editor.dart';
 import 'workspace_forms.dart';
-
-const _chromeTint = LinearGradient(
-  begin: Alignment.topLeft,
-  end: Alignment.bottomRight,
-  colors: [Color(0xE6262C36), Color(0xEC191B1F)],
-);
 
 enum _ReviewFilter {
   all('All reviews'),
@@ -28,6 +28,7 @@ enum _ReviewFilter {
 enum _Area {
   overview('Overview', Icons.grid_view_rounded),
   projects('Projects', Icons.layers_outlined),
+  questionnaires('Questionnaires', Icons.fact_check_outlined),
   directory('Evaluators', Icons.group_outlined),
   reviews('Reviews', Icons.rate_review_outlined),
   profile('Profile', Icons.person_outline_rounded),
@@ -62,9 +63,13 @@ class _Workspace extends StatefulWidget {
 class _WorkspaceState extends State<_Workspace> {
   late final _repo = CloudRepository(widget.client, widget.userId);
   late Future<WorkspaceData> _data = _repo.load();
+  late Future<List<QuestionnaireChoice>> _savedQuestionnaires = _repo
+      .savedQuestionnaires();
+  final _workspaceBackdrop = BackdropKey();
   RealtimeChannel? _updates;
   _Area _area = _Area.overview;
   bool _busy = false;
+  bool _pickingQuestionnaire = false;
   bool _community = false;
   String _query = '';
   String? _evaluatorType;
@@ -96,9 +101,8 @@ class _WorkspaceState extends State<_Workspace> {
     if (mounted) setState(() => _data = _repo.load());
   }
 
-  void _notice(String message) => ScaffoldMessenger.of(
-    context,
-  ).showSnackBar(SnackBar(content: Text(message)));
+  void _notice(String message, {NoticeTone tone = NoticeTone.success}) =>
+      AppNotice.show(context, message, tone: tone);
 
   Future<void> _change(Future<void> Function() action, String done) async {
     if (_busy) return;
@@ -109,7 +113,7 @@ class _WorkspaceState extends State<_Workspace> {
       _refresh();
       _notice(done);
     } catch (error) {
-      if (mounted) _notice(workspaceError(error));
+      if (mounted) _notice(workspaceError(error), tone: NoticeTone.error);
     } finally {
       if (mounted) setState(() => _busy = false);
     }
@@ -139,39 +143,36 @@ class _WorkspaceState extends State<_Workspace> {
         body: Stack(
           fit: StackFit.expand,
           children: [
-            const _WorkspaceBackdrop(),
-            SafeArea(
-              child: Center(
-                child: ConstrainedBox(
-                  constraints: const BoxConstraints(maxWidth: 1400),
-                  child: Padding(
-                    padding: EdgeInsets.all(wide ? 24 : 12),
-                    child: Column(
-                      children: [
-                        _toolbar(wide),
-                        SizedBox(height: wide ? 16 : 10),
-                        Expanded(
-                          child: Row(
-                            crossAxisAlignment: CrossAxisAlignment.stretch,
-                            children: [
-                              if (wide) ...[
-                                SizedBox(
-                                  width: 196,
-                                  child: GlassSurface(
-                                    blur: 8,
-                                    radius: 17,
-                                    rim: workshopEdge,
-                                    tint: _chromeTint,
-                                    child: nav,
+            const EvaluationBackdrop(),
+            BackdropGroup(
+              backdropKey: _workspaceBackdrop,
+              child: SafeArea(
+                child: Center(
+                  child: ConstrainedBox(
+                    constraints: const BoxConstraints(maxWidth: 1400),
+                    child: Padding(
+                      padding: EdgeInsets.all(wide ? 24 : 12),
+                      child: Column(
+                        children: [
+                          _toolbar(wide),
+                          SizedBox(height: wide ? 16 : 10),
+                          Expanded(
+                            child: Row(
+                              crossAxisAlignment: CrossAxisAlignment.stretch,
+                              children: [
+                                if (wide) ...[
+                                  SizedBox(
+                                    width: 196,
+                                    child: _WorkshopGlass(child: nav),
                                   ),
-                                ),
-                                const SizedBox(width: 24),
+                                  const SizedBox(width: 24),
+                                ],
+                                Expanded(child: _content(wide)),
                               ],
-                              Expanded(child: _content(wide)),
-                            ],
+                            ),
                           ),
-                        ),
-                      ],
+                        ],
+                      ),
                     ),
                   ),
                 ),
@@ -183,11 +184,7 @@ class _WorkspaceState extends State<_Workspace> {
     },
   );
 
-  Widget _toolbar(bool wide) => GlassSurface(
-    blur: 8,
-    radius: 17,
-    rim: workshopEdge,
-    tint: _chromeTint,
+  Widget _toolbar(bool wide) => _WorkshopGlass(
     child: Padding(
       padding: EdgeInsets.fromLTRB(wide ? 18 : 5, 7, 8, 7),
       child: Row(
@@ -247,7 +244,7 @@ class _WorkspaceState extends State<_Workspace> {
                     padding: const EdgeInsets.only(bottom: 4),
                     child: ListTile(
                       selected: _area == area,
-                      selectedTileColor: const Color(0x24FFFFFF),
+                      selectedTileColor: const Color(0x4476A7E1),
                       selectedColor: workshopText,
                       iconColor: workshopMuted,
                       textColor: workshopMuted,
@@ -287,7 +284,12 @@ class _WorkspaceState extends State<_Workspace> {
                       try {
                         await widget.client.auth.signOut();
                       } catch (error) {
-                        if (mounted) _notice(workspaceError(error));
+                        if (mounted) {
+                          _notice(
+                            workspaceError(error),
+                            tone: NoticeTone.error,
+                          );
+                        }
                       }
                     },
             ),
@@ -334,12 +336,9 @@ class _WorkspaceState extends State<_Workspace> {
                 curve: Curves.easeOutCubic,
                 builder: (context, value, child) => value == 1
                     ? child!
-                    : Opacity(
-                        opacity: .6 + .4 * value,
-                        child: Transform.translate(
-                          offset: Offset(0, 12 * (1 - value)),
-                          child: child,
-                        ),
+                    : Transform.translate(
+                        offset: Offset(0, 8 * (1 - value)),
+                        child: child,
                       ),
                 child: Center(
                   child: ConstrainedBox(
@@ -361,6 +360,7 @@ class _WorkspaceState extends State<_Workspace> {
                         switch (_area) {
                           _Area.overview => _overview(data),
                           _Area.projects => _projects(data),
+                          _Area.questionnaires => _questionnaireLibrary(),
                           _Area.directory => _directory(data),
                           _Area.reviews => _reviews(data),
                           _Area.profile => _profile(data),
@@ -553,7 +553,7 @@ class _WorkspaceState extends State<_Workspace> {
         projects.first;
     final link = (project['artifact_url'] as String?)?.trim();
     final hasLink = link != null && link.isNotEmpty;
-    final hasChecklist = (project['rubric_id'] as String?)?.isNotEmpty == true;
+    final hasChecklist = hasQuestionnaire(project);
     final private = project['visibility'] == 'private';
     final picker = InputDecorator(
       decoration: const InputDecoration(
@@ -580,15 +580,8 @@ class _WorkspaceState extends State<_Workspace> {
         ),
       ),
     );
-    return GlassSurface(
-      radius: 15,
-      blur: 0,
-      rim: const Color(0x50A3C9F3),
-      tint: const LinearGradient(
-        begin: Alignment.topLeft,
-        end: Alignment.bottomRight,
-        colors: [Color(0xFF1E2B3A), Color(0xFF1B1D21), Color(0xFF1B1D21)],
-      ),
+    return _WorkshopGlass(
+      featured: true,
       child: Padding(
         padding: const EdgeInsets.all(15),
         child: LayoutBuilder(
@@ -654,8 +647,8 @@ class _WorkspaceState extends State<_Workspace> {
                       _KitTag(
                         hasChecklist ? Icons.checklist : Icons.info_outline,
                         hasChecklist
-                            ? 'Checklist selected'
-                            : 'Checklist missing',
+                            ? 'Questionnaire ready'
+                            : 'Questionnaire missing',
                         attention: !hasChecklist,
                       ),
                     ],
@@ -680,6 +673,23 @@ class _WorkspaceState extends State<_Workspace> {
       '',
       project['summary'] as String,
       if (link != null && link.isNotEmpty) ...['', 'Project link: $link'],
+      if (project['test_instructions'] case final String instructions) ...[
+        '',
+        'What to try:',
+        instructions,
+      ],
+      if (project['questionnaire_url'] case final String url) ...[
+        '',
+        'Questionnaire: $url',
+      ],
+      if (project['questionnaire_file_name'] case final String name) ...[
+        '',
+        'Questionnaire file in In Cantiere: $name',
+      ],
+      if (projectQuestionnaire(project) case final form?) ...[
+        '',
+        'Questionnaire in In Cantiere: ${form.title}',
+      ],
       '',
       'Please try the project and share your feedback.',
       '• What worked well?',
@@ -690,7 +700,9 @@ class _WorkspaceState extends State<_Workspace> {
       await Clipboard.setData(ClipboardData(text: text));
       if (mounted) _notice('Review brief copied');
     } on PlatformException {
-      if (mounted) _notice('Couldn’t copy the review brief');
+      if (mounted) {
+        _notice('Couldn’t copy the review brief', tone: NoticeTone.error);
+      }
     }
   }
 
@@ -886,30 +898,7 @@ class _WorkspaceState extends State<_Workspace> {
         title: Text(project['title'] as String),
         content: SizedBox(
           width: 470,
-          child: SingleChildScrollView(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Text(
-                  '${project['category']} · ${project['visibility'] == 'private' ? 'Private' : 'Community'}',
-                  style: const TextStyle(color: workshopMuted),
-                ),
-                const SizedBox(height: 12),
-                SelectableText(project['summary'] as String),
-                if (project['artifact_url'] != null)
-                  Padding(
-                    padding: const EdgeInsets.only(top: 12),
-                    child: TextButton.icon(
-                      onPressed: () =>
-                          _openUrl(project['artifact_url'] as String),
-                      icon: const Icon(Icons.open_in_new, size: 16),
-                      label: const Text('Open project material'),
-                    ),
-                  ),
-              ],
-            ),
-          ),
+          child: SingleChildScrollView(child: _projectBrief(project)),
         ),
         actions: [
           TextButton(
@@ -986,23 +975,405 @@ class _WorkspaceState extends State<_Workspace> {
     }
   }
 
+  Widget _questionnaireLibrary() => Column(
+    crossAxisAlignment: CrossAxisAlignment.stretch,
+    children: [
+      const Text(
+        'Pick a free template or build a questionnaire for your next project.',
+      ),
+      const SizedBox(height: 18),
+      _heading('Free templates'),
+      LayoutBuilder(
+        builder: (context, constraints) {
+          final width = constraints.maxWidth;
+          return Wrap(
+            spacing: 12,
+            runSpacing: 12,
+            children: [
+              for (final template in freeQuestionnaires)
+                SizedBox(
+                  width: width >= 700 ? (width - 12) / 2 : width,
+                  child: _questionnaireCard(template),
+                ),
+            ],
+          );
+        },
+      ),
+      const SizedBox(height: 26),
+      _heading('My questionnaires'),
+      const Text(
+        'Saved to your account. Choose them when you create a project.',
+      ),
+      const SizedBox(height: 10),
+      Wrap(
+        spacing: 8,
+        runSpacing: 8,
+        children: [
+          FilledButton.tonalIcon(
+            onPressed: () => _editSavedQuestionnaire(),
+            icon: const Icon(Icons.add, size: 18),
+            label: const Text('New questionnaire'),
+          ),
+          OutlinedButton.icon(
+            onPressed: _pickingQuestionnaire ? null : _uploadSavedQuestionnaire,
+            icon: const Icon(Icons.upload_file_outlined, size: 18),
+            label: Text(
+              _pickingQuestionnaire ? 'Uploading…' : 'Upload PDF or Word',
+            ),
+          ),
+        ],
+      ),
+      const SizedBox(height: 14),
+      FutureBuilder<List<QuestionnaireChoice>>(
+        future: _savedQuestionnaires,
+        builder: (context, snapshot) {
+          if (snapshot.hasError) {
+            return Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const AppNotice(
+                  'Couldn’t load your questionnaires',
+                  tone: NoticeTone.error,
+                ),
+                TextButton(
+                  onPressed: _refreshQuestionnaires,
+                  child: const Text('Try again'),
+                ),
+              ],
+            );
+          }
+          final saved = snapshot.data;
+          if (saved == null) return const LinearProgressIndicator();
+          if (saved.isEmpty) {
+            return const Text('Your saved questionnaires will appear here.');
+          }
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              for (final item in saved)
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 10),
+                  child: _questionnaireCard(item),
+                ),
+            ],
+          );
+        },
+      ),
+    ],
+  );
+
+  Widget _questionnaireCard(QuestionnaireChoice choice) {
+    final form = choice.form;
+    final asset = choice.asset;
+    final file = choice.filePath;
+    return _Surface(
+      child: Padding(
+        padding: const EdgeInsets.all(17),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Icon(
+              form == null
+                  ? Icons.attach_file_outlined
+                  : Icons.list_alt_outlined,
+              color: workshopIce,
+            ),
+            const SizedBox(height: 8),
+            Text(choice.title, style: Theme.of(context).textTheme.titleMedium),
+            const SizedBox(height: 6),
+            Text(
+              form == null
+                  ? choice.fileName!
+                  : '${form.items.length} questions · 1–${form.levels.length} scale',
+              style: const TextStyle(color: workshopMuted),
+            ),
+            if (choice.id == 'iso-worksheet')
+              const Text('Includes starter questions for the nine sections.'),
+            if (choice.id == 'mars-worksheet')
+              const Text('Four-point worksheet for non-entertainment apps.'),
+            const SizedBox(height: 10),
+            Wrap(
+              spacing: 6,
+              runSpacing: 4,
+              children: [
+                if (form != null) ...[
+                  FilledButton.tonalIcon(
+                    onPressed: () => _editSavedQuestionnaire(choice),
+                    icon: const Icon(Icons.edit_outlined, size: 16),
+                    label: Text(asset == null ? 'Edit' : 'Edit a copy'),
+                  ),
+                  TextButton(
+                    onPressed: () => _previewQuestionnaireChoice(choice),
+                    child: const Text('Preview'),
+                  ),
+                ],
+                if (asset != null)
+                  TextButton.icon(
+                    onPressed: () => downloadQuestionnaireTemplate(asset),
+                    icon: const Icon(Icons.download_outlined, size: 16),
+                    label: const Text('Download Word'),
+                  ),
+                if (file != null)
+                  TextButton.icon(
+                    onPressed: () =>
+                        _downloadQuestionnaire(file, choice.fileName!),
+                    icon: const Icon(Icons.download_outlined, size: 16),
+                    label: const Text('Download file'),
+                  ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _refreshQuestionnaires() {
+    setState(() => _savedQuestionnaires = _repo.savedQuestionnaires());
+  }
+
+  Future<void> _editSavedQuestionnaire([QuestionnaireChoice? choice]) async {
+    final form = await editQuestionnaire(
+      context,
+      initial: choice?.form,
+      save: (form) => _repo.saveQuestionnaire(
+        form,
+        id: choice?.asset == null ? choice?.id : null,
+      ),
+    );
+    if (!mounted || form == null) return;
+    _refreshQuestionnaires();
+    _notice('Questionnaire saved');
+  }
+
+  Future<void> _uploadSavedQuestionnaire() async {
+    setState(() => _pickingQuestionnaire = true);
+    try {
+      final file = await pickQuestionnaireFile(allowWord: true);
+      if (!mounted || file == null) return;
+      await _repo.saveQuestionnaireFile(file);
+      if (!mounted) return;
+      _refreshQuestionnaires();
+      _notice('Questionnaire uploaded');
+    } on FormatException catch (error) {
+      if (mounted) _notice(error.message, tone: NoticeTone.error);
+    } catch (error) {
+      if (mounted) _notice(workspaceError(error), tone: NoticeTone.error);
+    } finally {
+      if (mounted) setState(() => _pickingQuestionnaire = false);
+    }
+  }
+
+  void _previewQuestionnaireChoice(QuestionnaireChoice choice) {
+    if (choice.form case final form?) {
+      previewQuestionnaire(context, form);
+    } else if (choice.filePath case final file?) {
+      _downloadQuestionnaire(file, choice.fileName!);
+    }
+  }
+
+  Widget _projectBrief(WorkspaceRow project) {
+    final source = questionnaireSources[project['rubric_id']];
+    final custom = project['custom_questions'] as List<dynamic>?;
+    final link = project['artifact_url'] as String?;
+    final questionnaire = project['questionnaire_url'] as String?;
+    final pdfPath = project['questionnaire_file_path'] as String?;
+    final pdfName = project['questionnaire_file_name'] as String?;
+    final form = projectQuestionnaire(project);
+    final audience = project['audience'] as String?;
+    final instructions = project['test_instructions'] as String?;
+    final label = source != null
+        ? project['rubric_id'] == 'website-iso25010-v1'
+              ? 'Website quality · ISO/IEC 25010:2023-informed'
+              : 'Mobile app quality · MARS-informed'
+        : custom != null
+        ? 'Custom questionnaire · ${custom.length} questions'
+        : project['rubric_id'] != null
+        ? 'Built-in questionnaire'
+        : form?.title ??
+              (pdfName == null
+                  ? 'External questionnaire'
+                  : 'Questionnaire · $pdfName');
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Text(
+          '${project['category']} · ${project['visibility'] == 'private' ? 'Private' : 'Community'}',
+          style: const TextStyle(color: workshopMuted),
+        ),
+        const SizedBox(height: 10),
+        SelectableText(project['summary'] as String),
+        if (link != null) ...[
+          const SizedBox(height: 12),
+          FilledButton.tonalIcon(
+            onPressed: () => _openUrl(link),
+            icon: const Icon(Icons.open_in_new, size: 16),
+            label: const Text('Open project'),
+          ),
+        ],
+        if (audience != null && audience.isNotEmpty) ...[
+          const SizedBox(height: 12),
+          const Text(
+            'Intended users',
+            style: TextStyle(fontWeight: FontWeight.w800),
+          ),
+          SelectableText(audience),
+        ],
+        if (instructions != null && instructions.isNotEmpty) ...[
+          const SizedBox(height: 12),
+          const Text(
+            'What to try',
+            style: TextStyle(fontWeight: FontWeight.w800),
+          ),
+          SelectableText(instructions),
+        ],
+        const SizedBox(height: 14),
+        Text(label, style: const TextStyle(color: workshopIce)),
+        if (questionnaire != null ||
+            source != null ||
+            pdfPath != null ||
+            form != null)
+          Wrap(
+            spacing: 8,
+            children: [
+              if (form != null)
+                TextButton.icon(
+                  onPressed: () => previewQuestionnaire(context, form),
+                  icon: const Icon(Icons.visibility_outlined, size: 17),
+                  label: const Text('Preview questionnaire'),
+                ),
+              if (pdfPath != null)
+                TextButton.icon(
+                  onPressed: () => _downloadQuestionnaire(pdfPath, pdfName!),
+                  icon: const Icon(Icons.download_outlined, size: 17),
+                  label: const Text('Download questionnaire'),
+                ),
+              if (questionnaire != null)
+                TextButton.icon(
+                  onPressed: () => _openUrl(questionnaire),
+                  icon: const Icon(Icons.open_in_new, size: 15),
+                  label: const Text('Open questionnaire'),
+                ),
+              if (source != null)
+                TextButton(
+                  onPressed: () => _openUrl(source.url),
+                  child: Text(source.name),
+                ),
+            ],
+          ),
+      ],
+    );
+  }
+
+  void _downloadQuestionnaire(String path, String name) {
+    final download = _repo.questionnaireDownloadUrl(path);
+    showDialog<void>(
+      context: context,
+      builder: (dialogContext) => FutureBuilder<String>(
+        future: download,
+        builder: (_, snapshot) => AlertDialog(
+          title: Text(name),
+          content: Text(
+            snapshot.hasError
+                ? 'Couldn’t prepare the download.'
+                : snapshot.hasData
+                ? 'The download link is valid for one minute.'
+                : 'Preparing download…',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext),
+              child: const Text('Close'),
+            ),
+            if (snapshot.hasData)
+              FilledButton.icon(
+                onPressed: () {
+                  _openUrl(snapshot.data!);
+                  Navigator.pop(dialogContext);
+                },
+                icon: const Icon(Icons.download_outlined, size: 17),
+                label: const Text('Download file'),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+
   Future<void> _createProject() async {
     try {
-      final rubrics = await _repo.rubrics();
+      final (rubrics, savedQuestionnaires) = await (
+        _repo.rubrics(),
+        _repo.savedQuestionnaires(),
+      ).wait;
       if (!mounted) return;
       final saved = await showDialog<bool>(
         context: context,
         barrierDismissible: false,
-        builder: (_) =>
-            ProjectForm(rubrics: rubrics, save: _repo.createProject),
+        builder: (_) => ProjectForm(
+          rubrics: rubrics,
+          save: _repo.createProject,
+          openUrl: _openUrl,
+          previewTemplate: _previewTemplate,
+          questionnaires: [...freeQuestionnaires, ...savedQuestionnaires],
+          previewChoice: _previewQuestionnaireChoice,
+          editChoice: (form) => editQuestionnaire(context, initial: form),
+        ),
       );
       if (mounted && saved == true) {
         _refresh();
         _notice('Project created');
       }
     } catch (error) {
-      if (mounted) _notice(workspaceError(error));
+      if (mounted) _notice(workspaceError(error), tone: NoticeTone.error);
     }
+  }
+
+  void _previewTemplate(String rubric) {
+    final questions = _repo.criteria(rubric);
+    showDialog<void>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Questionnaire preview'),
+        content: SizedBox(
+          width: 480,
+          child: FutureBuilder<List<WorkspaceRow>>(
+            future: questions,
+            builder: (context, snapshot) {
+              if (snapshot.hasError) {
+                return const AppNotice(
+                  'Couldn’t load the questions',
+                  tone: NoticeTone.error,
+                );
+              }
+              final rows = snapshot.data;
+              if (rows == null) return const LinearProgressIndicator();
+              return SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    for (final (index, row) in rows.indexed)
+                      ListTile(
+                        contentPadding: EdgeInsets.zero,
+                        leading: Text('${index + 1}'),
+                        title: Text(row['label'] as String),
+                        subtitle: Text(row['prompt'] as String),
+                      ),
+                  ],
+                ),
+              );
+            },
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Close'),
+          ),
+        ],
+      ),
+    );
   }
 
   Widget _directory(WorkspaceData data) {
@@ -1053,7 +1424,7 @@ class _WorkspaceState extends State<_Workspace> {
           _Surface(
             child: ListTile(
               leading: const CircleAvatar(
-                backgroundColor: Color(0xFF2D3036),
+                backgroundColor: Color(0xFF203756),
                 child: Icon(Icons.person_outline, color: workshopMuted),
               ),
               title: Text(person['display_name'] as String),
@@ -1318,16 +1689,40 @@ class _WorkspaceState extends State<_Workspace> {
 
   Future<void> _writeReview(String assignmentId, WorkspaceRow project) async {
     try {
-      final criteria = await _repo.criteria(project['rubric_id'] as String);
+      final criteria = await _repo.projectCriteria(project);
+      final form = projectQuestionnaire(project);
       if (!mounted) return;
       final saved = await showDialog<bool>(
         context: context,
         barrierDismissible: false,
         builder: (_) => ReviewForm(
           criteria: criteria,
-          projectTitle: project['title'] as String,
-          save: (review) =>
-              _repo.submitReview(assignmentId, review.scores, review.feedback),
+          questionnaire: form,
+          projectBrief: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                project['title'] as String,
+                style: Theme.of(context).textTheme.titleLarge,
+              ),
+              const SizedBox(height: 8),
+              _projectBrief(project),
+            ],
+          ),
+          allowUnassessed: questionnaireSources.containsKey(
+            project['rubric_id'],
+          ),
+          externalOnly:
+              project['rubric_id'] == null &&
+              project['custom_questions'] == null &&
+              form == null &&
+              hasQuestionnaire(project),
+          save: (review) => _repo.submitReview(
+            assignmentId,
+            review.scores,
+            review.feedback,
+            respondentDetails: review.respondentDetails,
+          ),
         ),
       );
       if (mounted && saved == true) {
@@ -1335,15 +1730,20 @@ class _WorkspaceState extends State<_Workspace> {
         _notice('Review submitted');
       }
     } catch (error) {
-      if (mounted) _notice(workspaceError(error));
+      if (mounted) _notice(workspaceError(error), tone: NoticeTone.error);
     }
   }
 
   Future<void> _readReview(WorkspaceRow review, WorkspaceRow project) async {
     try {
-      final criteria = await _repo.criteria(project['rubric_id'] as String);
+      final criteria = await _repo.projectCriteria(project);
       if (!mounted) return;
       final scores = review['scores'] as WorkspaceRow;
+      final form = projectQuestionnaire(project);
+      final details =
+          (review['respondent_details'] as List<dynamic>? ?? const [])
+              .cast<String>();
+      final highest = form?.levels.length ?? 5;
       await showDialog<void>(
         context: context,
         builder: (context) => AlertDialog(
@@ -1360,10 +1760,27 @@ class _WorkspaceState extends State<_Workspace> {
                       contentPadding: EdgeInsets.zero,
                       title: Text(criterion['label'] as String),
                       trailing: Text(
-                        '${scores[criterion['criterion_key']]} / 5',
+                        scores[criterion['criterion_key']] == 0
+                            ? 'Not assessed'
+                            : '${scores[criterion['criterion_key']]} / $highest',
                       ),
                     ),
-                  const Divider(),
+                  if (criteria.isNotEmpty) const Divider(),
+                  if (form != null &&
+                      details.any((detail) => detail.isNotEmpty)) ...[
+                    Text(
+                      'Respondent details',
+                      style: Theme.of(context).textTheme.titleSmall,
+                    ),
+                    for (final (index, detail) in details.indexed)
+                      if (detail.isNotEmpty)
+                        ListTile(
+                          contentPadding: EdgeInsets.zero,
+                          title: Text(form.fields[index]),
+                          subtitle: SelectableText(detail),
+                        ),
+                    const Divider(),
+                  ],
                   SelectableText(review['feedback'] as String),
                 ],
               ),
@@ -1378,7 +1795,7 @@ class _WorkspaceState extends State<_Workspace> {
         ),
       );
     } catch (error) {
-      if (mounted) _notice(workspaceError(error));
+      if (mounted) _notice(workspaceError(error), tone: NoticeTone.error);
     }
   }
 
@@ -1531,7 +1948,7 @@ class _WorkspaceState extends State<_Workspace> {
     } catch (_) {
       // Show the same message if the browser refuses to open the link.
     }
-    if (mounted) _notice('Couldn’t open this link.');
+    if (mounted) _notice('Couldn’t open this link.', tone: NoticeTone.error);
   }
 
   Widget _heading(String title) => Padding(
@@ -1546,23 +1963,6 @@ class _WorkspaceState extends State<_Workspace> {
       ),
     ),
   );
-}
-
-class _WorkspaceBackdrop extends StatelessWidget {
-  const _WorkspaceBackdrop();
-
-  @override
-  Widget build(BuildContext context) => MediaQuery.highContrastOf(context)
-      ? const ColoredBox(color: workshopNight)
-      : const DecoratedBox(
-          decoration: BoxDecoration(
-            gradient: RadialGradient(
-              center: Alignment(.35, -.95),
-              radius: 1.3,
-              colors: [Color(0xFF202630), workshopNight],
-            ),
-          ),
-        );
 }
 
 class _Kicker extends StatelessWidget {
@@ -1580,26 +1980,45 @@ class _Kicker extends StatelessWidget {
   );
 }
 
+class _WorkshopGlass extends StatelessWidget {
+  const _WorkshopGlass({required this.child, this.featured = false});
+  final Widget child;
+  final bool featured;
+
+  @override
+  Widget build(BuildContext context) => GlassSurface(
+    radius: 17,
+    blur: 15,
+    tint: LinearGradient(
+      begin: Alignment.topLeft,
+      end: Alignment.bottomRight,
+      stops: const [0, .43, 1],
+      colors: featured
+          ? const [Color(0x74577CA7), Color(0x6524466E), Color(0xA00B1E3E)]
+          : const [Color(0x5C6A86AB), Color(0x531D385A), Color(0x940A1B36)],
+    ),
+    rimGradient: const LinearGradient(
+      begin: Alignment.topLeft,
+      end: Alignment.bottomRight,
+      colors: [
+        Color(0xC4D6EBFF),
+        Color(0x5288B7E9),
+        Color(0x2F6693C5),
+        Color(0x897FABD9),
+      ],
+      stops: [0, .25, .69, 1],
+    ),
+    child: Material(type: MaterialType.transparency, child: child),
+  );
+}
+
 class _Surface extends StatelessWidget {
   const _Surface({required this.child});
   final Widget child;
   @override
   Widget build(BuildContext context) => Padding(
     padding: const EdgeInsets.only(bottom: 8),
-    child: Material(
-      color: workshopSurface,
-      surfaceTintColor: Colors.transparent,
-      clipBehavior: Clip.antiAlias,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(14),
-        side: BorderSide(
-          color: MediaQuery.highContrastOf(context)
-              ? workshopMuted
-              : workshopEdge,
-        ),
-      ),
-      child: child,
-    ),
+    child: _WorkshopGlass(child: child),
   );
 }
 

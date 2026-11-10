@@ -6,6 +6,7 @@ import 'package:http/http.dart' as http;
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../services/cloud_repository.dart';
+import '../widgets/app_notice.dart';
 import '../widgets/cantiere_wordmark.dart';
 import '../widgets/liquid_glass.dart';
 
@@ -464,17 +465,7 @@ class _AuthScreenState extends State<AuthScreen> {
             _passwordField(confirmation: _step == _SignUpStep.confirmation),
           if (_error case final message?) ...[
             const SizedBox(height: 13),
-            Semantics(
-              liveRegion: true,
-              child: Text(
-                message,
-                style: const TextStyle(
-                  color: _warning,
-                  fontSize: 11,
-                  height: 1.4,
-                ),
-              ),
-            ),
+            AppNotice(message, tone: NoticeTone.error),
           ],
           const SizedBox(height: 19),
           _button(

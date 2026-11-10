@@ -22,6 +22,7 @@ class GlassSurface extends StatelessWidget {
     this.dark = true,
     this.tint,
     this.rim,
+    this.rimGradient,
   });
 
   final Widget child;
@@ -30,6 +31,7 @@ class GlassSurface extends StatelessWidget {
   final bool dark;
   final LinearGradient? tint;
   final Color? rim;
+  final LinearGradient? rimGradient;
 
   @override
   Widget build(BuildContext context) {
@@ -51,19 +53,28 @@ class GlassSurface extends StatelessWidget {
                         : const [Color(0xECFFFFFF), Color(0xBBD9EAFF)]),
             ),
       ),
-      child: DecoratedBox(
-        position: DecorationPosition.foreground,
-        decoration: BoxDecoration(
-          borderRadius: corners,
-          border: Border.all(
-            color: highContrast
-                ? (dark ? Colors.white : const Color(0xFF023E7D))
-                : (rim ?? (dark ? const Color(0x80CCEBFF) : Colors.white)),
-          ),
-        ),
-        child: child,
-      ),
+      child: rimGradient != null && !highContrast
+          ? CustomPaint(
+              foregroundPainter: _GlassRim(corners, rimGradient!),
+              child: child,
+            )
+          : DecoratedBox(
+              position: DecorationPosition.foreground,
+              decoration: BoxDecoration(
+                borderRadius: corners,
+                border: Border.all(
+                  color: highContrast
+                      ? (dark ? Colors.white : const Color(0xFF023E7D))
+                      : (rim ??
+                            (dark ? const Color(0x80CCEBFF) : Colors.white)),
+                ),
+              ),
+              child: child,
+            ),
     );
+    final filter = blur > 0 && !highContrast
+        ? ImageFilter.blur(sigmaX: blur, sigmaY: blur)
+        : null;
     return DecoratedBox(
       decoration: BoxDecoration(
         borderRadius: corners,
@@ -77,15 +88,36 @@ class GlassSurface extends StatelessWidget {
       ),
       child: ClipRRect(
         borderRadius: corners,
-        child: blur > 0 && !highContrast
-            ? BackdropFilter(
-                filter: ImageFilter.blur(sigmaX: blur, sigmaY: blur),
-                child: panel,
-              )
-            : panel,
+        child: filter == null
+            ? panel
+            : BackdropGroup.of(context) == null
+            ? BackdropFilter(filter: filter, child: panel)
+            : BackdropFilter.grouped(filter: filter, child: panel),
       ),
     );
   }
+}
+
+class _GlassRim extends CustomPainter {
+  const _GlassRim(this.corners, this.gradient);
+  final BorderRadius corners;
+  final LinearGradient gradient;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final rect = Offset.zero & size;
+    canvas.drawRRect(
+      corners.toRRect(rect).deflate(.6),
+      Paint()
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 1.2
+        ..shader = gradient.createShader(rect),
+    );
+  }
+
+  @override
+  bool shouldRepaint(_GlassRim oldDelegate) =>
+      corners != oldDelegate.corners || gradient != oldDelegate.gradient;
 }
 
 typedef LiquidNavItem = ({String label, IconData icon});

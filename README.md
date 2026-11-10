@@ -52,7 +52,7 @@ Enable Google under Supabase Authentication providers and enter the OAuth client
 
 Project and portfolio links use their external provider's access settings. Private projects should use artifact links with matching access controls.
 
-The first release covers email accounts, profiles, a searchable evaluator directory, projects, rubric templates, assignments, feedback, and basic report handling. Credential verification, custom rubric authoring, file hosting, email reminders, and appeals remain future work.
+The first release covers email accounts, profiles, a searchable evaluator directory, projects, questionnaires, assignments, feedback, and basic report handling. The Questionnaires library provides ISO/IEC 25010:2023 and MARS worksheets with original Word downloads and editable copies. Creators can save forms and PDF or Word attachments privately, then select one for a project. In-app questionnaire edits made during project creation apply to that project. Creators share a direct HTTPS link to the work under test and can also link an external form.
 
 
 ## Landing page photography and typography

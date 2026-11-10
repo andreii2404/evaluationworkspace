@@ -7,13 +7,13 @@ const muted = Color(0xFF475467);
 const line = Color(0xFFD0D5DD);
 const mint = Color(0xFFD9F3EE);
 
-const workshopNight = Color(0xFF111214);
-const workshopSurface = Color(0xFF1B1D21);
+const workshopNight = Color(0xFF040C1F);
+const workshopSurface = Color(0xFF101F37);
 const workshopBlue = Color(0xFF0466C8);
 const workshopIce = Color(0xFFB9D9FF);
 const workshopText = Color(0xFFF2F3F5);
-const workshopMuted = Color(0xFFB7BBC3);
-const workshopEdge = Color(0x35E3E7EF);
+const workshopMuted = Color(0xFFC0CDE0);
+const workshopEdge = Color(0x5683A7D4);
 
 ThemeData workshopTheme(ThemeData base) {
   final border = OutlineInputBorder(
@@ -30,14 +30,14 @@ ThemeData workshopTheme(ThemeData base) {
       primaryContainer: Color(0xFF28384D),
       onPrimaryContainer: workshopText,
       secondary: workshopIce,
-      secondaryContainer: Color(0xFF2D3036),
+      secondaryContainer: Color(0xFF203756),
       onSecondaryContainer: workshopText,
       surface: workshopSurface,
       onSurface: workshopText,
       onSurfaceVariant: workshopMuted,
-      outline: Color(0xFF818690),
+      outline: Color(0xFF829BBA),
       outlineVariant: workshopEdge,
-      surfaceContainerHighest: Color(0xFF2C2E33),
+      surfaceContainerHighest: Color(0xFF213653),
     ),
     textTheme: base.textTheme.apply(
       fontFamily: 'Manrope',
@@ -52,7 +52,7 @@ ThemeData workshopTheme(ThemeData base) {
     ),
     inputDecorationTheme: InputDecorationTheme(
       filled: true,
-      fillColor: workshopNight,
+      fillColor: const Color(0xB3040C1F),
       hoverColor: const Color(0x16FFFFFF),
       border: border,
       enabledBorder: border,

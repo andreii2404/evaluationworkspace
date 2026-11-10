@@ -38,6 +38,7 @@ dependencies:
   supabase_flutter: 2.18.3
   url_launcher: 6.3.2
   http: 1.6.0
+  web: 1.1.1
 
 dev_dependencies:
   flutter_test:
@@ -63,6 +64,7 @@ flutter:
   shaders:
     - assets/landing/waterline.frag
   assets:
+    - assets/questionnaires/
     - assets/auth/google-g.png
     - assets/landing/team-study.webp
     - assets/landing/waterline.webp
