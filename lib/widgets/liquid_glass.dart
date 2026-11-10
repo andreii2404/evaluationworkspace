@@ -21,6 +21,7 @@ class GlassSurface extends StatelessWidget {
     this.blur = 12,
     this.dark = true,
     this.tint,
+    this.rim,
   });
 
   final Widget child;
@@ -28,6 +29,7 @@ class GlassSurface extends StatelessWidget {
   final double blur;
   final bool dark;
   final LinearGradient? tint;
+  final Color? rim;
 
   @override
   Widget build(BuildContext context) {
@@ -56,7 +58,7 @@ class GlassSurface extends StatelessWidget {
           border: Border.all(
             color: highContrast
                 ? (dark ? Colors.white : const Color(0xFF023E7D))
-                : (dark ? const Color(0x80CCEBFF) : Colors.white),
+                : (rim ?? (dark ? const Color(0x80CCEBFF) : Colors.white)),
           ),
         ),
         child: child,

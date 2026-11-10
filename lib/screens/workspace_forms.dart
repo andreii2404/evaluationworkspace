@@ -128,29 +128,32 @@ class _WorkspaceFormState extends State<_WorkspaceForm> {
               child: _input(_controllers[field.key]!, field),
             ),
           if (widget.directory) ...[
-            DropdownButtonFormField<String>(
-              initialValue: _type,
-              isExpanded: true,
-              decoration: const InputDecoration(labelText: 'Evaluator type'),
-              items: evaluatorTypes.entries
-                  .map(
-                    (type) => DropdownMenuItem(
-                      value: type.key,
-                      child: Text(type.value),
-                    ),
-                  )
-                  .toList(),
-              onChanged: (value) => setState(() => _type = value!),
-            ),
             SwitchListTile(
               contentPadding: EdgeInsets.zero,
-              title: const Text('List me as an evaluator'),
+              title: const Text('Show me in the evaluator directory'),
               subtitle: const Text(
-                'Members can see this profile and invite you.',
+                'Let members find your profile and send you review invitations.',
               ),
               value: _visible,
               onChanged: (value) => setState(() => _visible = value),
             ),
+            if (_visible) ...[
+              const SizedBox(height: 8),
+              DropdownButtonFormField<String>(
+                initialValue: _type,
+                isExpanded: true,
+                decoration: const InputDecoration(labelText: 'Evaluator type'),
+                items: evaluatorTypes.entries
+                    .map(
+                      (type) => DropdownMenuItem(
+                        value: type.key,
+                        child: Text(type.value),
+                      ),
+                    )
+                    .toList(),
+                onChanged: (value) => setState(() => _type = value!),
+              ),
+            ],
           ],
         ],
       ),

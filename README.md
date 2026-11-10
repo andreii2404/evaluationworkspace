@@ -43,6 +43,7 @@ Enable Google under Supabase Authentication providers and enter the OAuth client
 ## Cloud workflows
 
 - Sign up, confirm email, and sign in. New accounts get a profile automatically.
+- The community is free to use. Members can create projects and accept review invitations with the same account.
 - Edit your profile and opt into the evaluator directory. Expertise and portfolio links are self-reported.
 - Create a private project with an HTTPS artifact link and a versioned rubric. Share it with signed-in community members or invite an evaluator directly.
 - Accept or decline an invitation. An accepted evaluator can submit one review with scores, feedback, and a conflict-of-interest declaration.
