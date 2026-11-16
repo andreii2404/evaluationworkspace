@@ -4,6 +4,7 @@ import 'package:flutter/rendering.dart' show RenderAbstractViewport;
 
 import '../widgets/cantiere_wordmark.dart';
 import '../widgets/liquid_glass.dart';
+import '../widgets/loading_skeleton.dart';
 
 const _smartBlue = Color(0xFF0466C8);
 const _sapphire = Color(0xFF0353A4);
@@ -56,22 +57,20 @@ class _LandingScreenState extends State<LandingScreen> {
   final _top = GlobalKey();
   final _workflow = GlobalKey();
   final _audience = GlobalKey();
-  final _trust = GlobalKey();
+  final _faq = GlobalKey();
   final _header = GlobalKey();
   final _scroll = ScrollController();
   final _active = ValueNotifier(0);
   final _waterDrift = ValueNotifier(0.0);
-  final _readingProgress = ValueNotifier(0.0);
   int _navigation = 0;
   bool _jumping = false;
 
-  late final _sections = [_top, _workflow, _audience, _trust];
+  late final _sections = [_top, _workflow, _audience];
 
   static const List<LiquidNavItem> _links = [
     (label: 'Home', icon: Icons.home_outlined),
     (label: 'How it works', icon: Icons.layers_outlined),
     (label: 'Who can join', icon: Icons.group_outlined),
-    (label: 'Safety', icon: Icons.shield_outlined),
   ];
 
   @override
@@ -94,9 +93,7 @@ class _LandingScreenState extends State<LandingScreen> {
   }
 
   void _onScroll() {
-    final position = _scroll.position;
-    final offset = position.pixels;
-    if (position.hasContentDimensions) _updateReadingProgress(position);
+    final offset = _scroll.offset;
     _waterDrift.value = (offset * .11).clamp(0.0, 62.0);
     if (_jumping) return;
 
@@ -109,15 +106,8 @@ class _LandingScreenState extends State<LandingScreen> {
     _active.value = current;
   }
 
-  void _updateReadingProgress(ScrollMetrics metrics) {
-    final extent = metrics.maxScrollExtent;
-    _readingProgress.value = extent > 0
-        ? (metrics.pixels / extent).clamp(0.0, 1.0)
-        : 0.0;
-  }
-
-  Future<void> _go(int index) async {
-    final top = _offset(_sections[index]);
+  Future<void> _go(int index, {GlobalKey? target}) async {
+    final top = _offset(target ?? _sections[index]);
     if (!_scroll.hasClients || top == null) return;
     final destination = (top - _headerClearance).clamp(
       0.0,
@@ -150,7 +140,6 @@ class _LandingScreenState extends State<LandingScreen> {
     _scroll.dispose();
     _active.dispose();
     _waterDrift.dispose();
-    _readingProgress.dispose();
     super.dispose();
   }
 
@@ -162,79 +151,54 @@ class _LandingScreenState extends State<LandingScreen> {
     body: Stack(
       children: [
         SelectionArea(
-          child: NotificationListener<ScrollMetricsNotification>(
-            onNotification: (notification) {
-              if (notification.depth == 0) {
-                _updateReadingProgress(notification.metrics);
-              }
-              return false;
-            },
-            child: SingleChildScrollView(
-              controller: _scroll,
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  _WaterStage(
-                    key: _top,
-                    drift: _waterDrift,
-                    child: _PageWidth(
-                      child: LayoutBuilder(
-                        builder: (context, box) => Padding(
-                          padding: EdgeInsets.only(
-                            top: box.maxWidth >= 920 ? 153 : 172,
-                            bottom: box.maxWidth >= 920 ? 68 : 38,
-                          ),
-                          child: _Hero(onLogin: _logIn, onSteps: () => _go(1)),
+          child: SingleChildScrollView(
+            controller: _scroll,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                _WaterStage(
+                  key: _top,
+                  drift: _waterDrift,
+                  child: _PageWidth(
+                    child: LayoutBuilder(
+                      builder: (context, box) => Padding(
+                        padding: EdgeInsets.only(
+                          top: box.maxWidth >= 920 ? 153 : 172,
+                          bottom: box.maxWidth >= 920 ? 68 : 38,
                         ),
+                        child: _Hero(onLogin: _logIn, onSteps: () => _go(1)),
                       ),
                     ),
                   ),
-                  const _ProjectTypes(),
-                  const _Reveal(child: _BrandStory()),
-                  _GlassField(
-                    key: _workflow,
-                    child: const _PageWidth(
-                      child: _Section(child: _Workflow()),
-                    ),
+                ),
+                const _ProjectTypes(),
+                const _Reveal(child: _BrandStory()),
+                _GlassField(
+                  key: _workflow,
+                  child: const _PageWidth(child: _Section(child: _Workflow())),
+                ),
+                _GlassField(
+                  key: _audience,
+                  inverted: true,
+                  child: const _PageWidth(child: _Section(child: _Audience())),
+                ),
+                const _WaterStage(
+                  child: _PageWidth(
+                    child: _Section(child: _WorkspaceHighlights()),
                   ),
-                  _GlassField(
-                    key: _audience,
-                    inverted: true,
-                    child: const _PageWidth(
-                      child: _Section(child: _Audience()),
-                    ),
-                  ),
-                  _WaterStage(
-                    key: _trust,
-                    child: const _PageWidth(child: _Section(child: _Trust())),
-                  ),
-                  const _GlassField(
-                    child: _PageWidth(child: _Section(child: _Questions())),
-                  ),
-                  ColoredBox(
-                    color: _ink,
-                    child: _PageWidth(
-                      child: Padding(
-                        padding: const EdgeInsets.symmetric(vertical: 18),
-                        child: Wrap(
-                          spacing: 16,
-                          runSpacing: 8,
-                          alignment: WrapAlignment.spaceBetween,
-                          crossAxisAlignment: WrapCrossAlignment.center,
-                          children: [
-                            const CantiereWordmark(),
-                            _TextAction(
-                              'Back to top',
-                              dark: true,
-                              onPressed: () => _go(0),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ),
-                  ),
-                ],
-              ),
+                ),
+                _GlassField(
+                  key: _faq,
+                  child: const _PageWidth(child: _Section(child: _Questions())),
+                ),
+                _LandingFooter(
+                  onHowItWorks: () => _go(1),
+                  onWhoCanJoin: () => _go(2),
+                  onQuestions: () => _go(2, target: _faq),
+                  onLogin: _logIn,
+                  onTop: () => _go(0),
+                ),
+              ],
             ),
           ),
         ),
@@ -268,7 +232,7 @@ class _LandingScreenState extends State<LandingScreen> {
                               child: Center(
                                 child: ConstrainedBox(
                                   constraints: const BoxConstraints(
-                                    maxWidth: 655,
+                                    maxWidth: 360,
                                   ),
                                   child: nav,
                                 ),
@@ -308,30 +272,7 @@ class _LandingScreenState extends State<LandingScreen> {
                   key: _header,
                   radius: wide ? 36 : 27,
                   blur: 15,
-                  child: Stack(
-                    children: [
-                      controls,
-                      Positioned(
-                        left: 24,
-                        right: 24,
-                        bottom: 0,
-                        child: IgnorePointer(
-                          child: ValueListenableBuilder<double>(
-                            valueListenable: _readingProgress,
-                            builder: (context, progress, _) =>
-                                FractionallySizedBox(
-                                  alignment: Alignment.centerLeft,
-                                  widthFactor: progress,
-                                  child: const SizedBox(
-                                    height: 2,
-                                    child: ColoredBox(color: _lightBlue),
-                                  ),
-                                ),
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
+                  child: controls,
                 );
               },
             ),
@@ -340,6 +281,91 @@ class _LandingScreenState extends State<LandingScreen> {
       ],
     ),
   );
+}
+
+class _LandingFooter extends StatelessWidget {
+  const _LandingFooter({
+    required this.onHowItWorks,
+    required this.onWhoCanJoin,
+    required this.onQuestions,
+    required this.onLogin,
+    required this.onTop,
+  });
+
+  final VoidCallback onHowItWorks, onWhoCanJoin, onQuestions, onLogin, onTop;
+
+  @override
+  Widget build(BuildContext context) {
+    final brand = Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const CantiereWordmark(fontSize: 22, symbolSize: 28),
+        const SizedBox(height: 7),
+        Text(
+          'A workspace for project testing, questionnaires, and feedback.',
+          style: _type(12, color: const Color(0xFFB8C8E2)),
+        ),
+      ],
+    );
+    final links = Wrap(
+      spacing: 4,
+      children: [
+        _TextAction('How it works', dark: true, onPressed: onHowItWorks),
+        _TextAction('Who can join', dark: true, onPressed: onWhoCanJoin),
+        _TextAction('FAQs', dark: true, onPressed: onQuestions),
+        _TextAction('Log in', dark: true, onPressed: onLogin),
+      ],
+    );
+    return Semantics(
+      container: true,
+      label: 'Site footer',
+      child: ColoredBox(
+        color: _ink,
+        child: _PageWidth(
+          child: Padding(
+            padding: const EdgeInsets.only(top: 20, bottom: 6),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                LayoutBuilder(
+                  builder: (context, box) {
+                    final wide =
+                        box.maxWidth >= 780 &&
+                        MediaQuery.textScalerOf(context).scale(12) <= 15;
+                    return wide
+                        ? Row(
+                            children: [
+                              Expanded(child: brand),
+                              const SizedBox(width: 16),
+                              links,
+                            ],
+                          )
+                        : Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [brand, const SizedBox(height: 8), links],
+                          );
+                  },
+                ),
+                const Divider(height: 18, color: Color(0x4783A7D4)),
+                Wrap(
+                  alignment: WrapAlignment.spaceBetween,
+                  crossAxisAlignment: WrapCrossAlignment.center,
+                  children: [
+                    Text(
+                      '© ${DateTime.now().year} In Cantiere',
+                      style: _type(11, color: const Color(0xFFB8C8E2)),
+                    ),
+                    _TextAction('Back to top', dark: true, onPressed: onTop),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
 }
 
 class _WaterStage extends StatelessWidget {
@@ -488,7 +514,7 @@ class _Action extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final foreground = secondary && !dark ? _navy : Colors.white;
+    final foreground = secondary && dark ? Colors.white : _navy;
     final style = ButtonStyle(
       foregroundColor: WidgetStatePropertyAll(foreground),
       backgroundColor: WidgetStateProperty.resolveWith((states) {
@@ -499,8 +525,8 @@ class _Action extends StatelessWidget {
               ? (hover ? const Color(0x80659CDF) : const Color(0x403B77BF))
               : (hover ? _mist : Colors.transparent);
         }
-        if (pressed) return _regal;
-        return hover ? _sapphire : _smartBlue;
+        if (pressed) return const Color(0xFFA7C9EE);
+        return hover ? _mist : _lightBlue;
       }),
       elevation: WidgetStateProperty.resolveWith(
         (states) => !secondary && states.contains(WidgetState.hovered) ? 3 : 0,
@@ -508,7 +534,7 @@ class _Action extends StatelessWidget {
       shadowColor: const WidgetStatePropertyAll(Color(0x6682BFFF)),
       overlayColor: WidgetStateProperty.resolveWith((states) {
         if (states.contains(WidgetState.focused)) {
-          return (dark || !secondary ? Colors.white : _smartBlue).withValues(
+          return (secondary && dark ? Colors.white : _smartBlue).withValues(
             alpha: .18,
           );
         }
@@ -572,21 +598,19 @@ class _Hero extends StatelessWidget {
     builder: (context, box) {
       final wide = box.maxWidth >= 920;
       final headingSize = wide
-          ? (box.maxWidth * .067).clamp(55.0, 88.0)
-          : (box.maxWidth * .138).clamp(38.0, 76.0);
+          ? (box.maxWidth * .049).clamp(46.0, 59.0)
+          : (box.maxWidth * .119).clamp(34.0, 63.0);
       final intro = Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          _eyebrow('PROJECT REVIEWS', color: _lightBlue),
-          const SizedBox(height: 18),
           Semantics(
             header: true,
             child: Text.rich(
               const TextSpan(
-                text: 'Put your work\n',
+                text: 'Test your project.\n',
                 children: [
                   TextSpan(
-                    text: 'to the test.',
+                    text: 'See what to improve.',
                     style: TextStyle(color: _lightBlue),
                   ),
                 ],
@@ -598,7 +622,7 @@ class _Hero extends StatelessWidget {
           ConstrainedBox(
             constraints: const BoxConstraints(maxWidth: 430),
             child: Text(
-              '$cantiereName helps students and creators share their projects, ask people to try them, and see what to improve.',
+              'Invite evaluators or share a project with the community. Collect questionnaire ratings and written feedback in one workspace.',
               style: _type(
                 wide ? 15 : 14,
                 color: const Color(0xFFD8E8FC),
@@ -742,7 +766,7 @@ class _HeroPhotoState extends State<_HeroPhoto> {
                                   _eyebrow('SAMPLE REVIEW', color: _lightBlue),
                                   const SizedBox(height: 3),
                                   Text(
-                                    'Show a confirmation after someone books.',
+                                    'Add a filter for rooms with power outlets.',
                                     style: _type(
                                       12,
                                       color: Colors.white,
@@ -818,10 +842,7 @@ class _PhotoSheet extends StatelessWidget {
                     horizontal: 9,
                     vertical: 5,
                   ),
-                  child: _eyebrow(
-                    'CAMPUS CLINIC / PROTOTYPE',
-                    color: Colors.white,
-                  ),
+                  child: _eyebrow('CAMPUS STUDY FINDER', color: Colors.white),
                 ),
               ),
             ),
@@ -849,6 +870,13 @@ class _Photo extends StatelessWidget {
     semanticLabel: description,
     fit: BoxFit.cover,
     alignment: alignment,
+    frameBuilder: (context, child, frame, synchronous) =>
+        frame != null || synchronous
+        ? child
+        : const LoadingSkeleton(
+            label: 'Loading photo',
+            child: ColoredBox(color: _prussian),
+          ),
     errorBuilder: (context, error, stack) => const ColoredBox(color: _prussian),
   );
 }
@@ -872,7 +900,7 @@ class _ProjectTypes extends StatelessWidget {
           runSpacing: 13,
           crossAxisAlignment: WrapCrossAlignment.center,
           children: [
-            _eyebrow('WHAT YOU CAN REVIEW', color: _lightBlue),
+            _eyebrow('PROJECTS YOU CAN TEST', color: _lightBlue),
             for (final (icon, label) in const [
               (Icons.school_outlined, 'Capstones & research'),
               (Icons.view_in_ar_outlined, 'Apps & prototypes'),
@@ -904,34 +932,55 @@ class _BrandStory extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => _PageWidth(
-    child: Padding(
-      padding: const EdgeInsets.symmetric(vertical: 34),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const CantiereSymbol(size: 56),
-          const SizedBox(width: 18),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Semantics(
-                  header: true,
-                  child: Text('Why $cantiereName?', style: _display(22)),
-                ),
-                const SizedBox(height: 7),
-                ConstrainedBox(
-                  constraints: const BoxConstraints(maxWidth: 590),
-                  child: Text(
-                    '$cantiereName is Italian for “in the works.” It’s the stage when your project is ready for others to try and there’s still time to act on what they find.',
-                    style: _type(13, color: _indigo, height: 1.6),
-                  ),
-                ),
-              ],
+    child: LayoutBuilder(
+      builder: (context, box) {
+        final wide = box.maxWidth >= 780;
+        final identity = GlassSurface(
+          dark: false,
+          blur: 0,
+          radius: 20,
+          child: Padding(
+            padding: EdgeInsets.all(wide ? 28 : 18),
+            child: CantiereWordmark(
+              dark: false,
+              fontSize: wide ? 46 : 34,
+              symbolSize: wide ? 52 : 38,
             ),
           ),
-        ],
-      ),
+        );
+        final meaning = Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Semantics(
+              header: true,
+              child: Text('In the works.', style: _display(wide ? 44 : 34)),
+            ),
+            const SizedBox(height: 10),
+            ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 530),
+              child: Text(
+                'In cantiere is Italian for something still being prepared or built. The name fits the moment when a project is ready for someone to try and their feedback can still shape what you build next.',
+                style: _type(14, color: _indigo, height: 1.6),
+              ),
+            ),
+          ],
+        );
+        return Padding(
+          padding: EdgeInsets.symmetric(vertical: wide ? 66 : 42),
+          child: wide
+              ? Row(
+                  children: [
+                    Expanded(flex: 4, child: identity),
+                    const SizedBox(width: 34),
+                    Expanded(flex: 6, child: meaning),
+                  ],
+                )
+              : Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [identity, const SizedBox(height: 20), meaning],
+                ),
+        );
+      },
     ),
   );
 }
@@ -1008,19 +1057,19 @@ class _WorkflowState extends State<_Workflow> {
 
   static const _steps = [
     (
-      title: 'Add your project',
+      title: 'Create a project',
       detail:
-          'Add a link to your work, choose a review checklist, and describe what you want reviewed.',
+          'Add a direct link and a task for evaluators to try. Use a questionnaire template or build your own.',
     ),
     (
-      title: 'Invite a reviewer',
+      title: 'Test and evaluate',
       detail:
-          'Check a reviewer’s skills and portfolio, then send a request they can accept or decline.',
+          'Share with the community or invite specific evaluators. They test your project and submit ratings and feedback in In Cantiere.',
     ),
     (
-      title: 'Read your feedback',
+      title: 'Review the responses',
       detail:
-          'Compare scores item by item. Use the written notes to spot where people got stuck and decide what to change.',
+          'Open Responses to compare ratings and read individual feedback. Use what you learn to decide what to improve.',
     ),
   ];
 
@@ -1031,9 +1080,9 @@ class _WorkflowState extends State<_Workflow> {
       children: [
         const _SectionTitle(
           label: 'HOW IT WORKS',
-          title: 'Get feedback in three steps.',
+          title: 'From project to feedback.',
           body:
-              'Each reviewer scores the same checklist, so you can compare feedback. Pick a step to follow a sample project.',
+              'Choose a step to follow a sample project from setup through evaluation to results.',
         ),
         const SizedBox(height: 27),
         LayoutBuilder(
@@ -1152,66 +1201,55 @@ class _ReviewSample extends StatelessWidget {
 
   final int step;
 
+  String get _status => switch (step) {
+    0 => 'Private draft',
+    1 => 'Community evaluation',
+    _ => '1 response',
+  };
+
   Widget _preview() => switch (step) {
     0 => const Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         _SampleLine(
-          icon: Icons.link_rounded,
-          title: 'Project link added',
-          detail: 'Campus Clinic app prototype · Private',
+          icon: Icons.assignment_outlined,
+          title: 'Project link and testing instructions',
+          detail: 'Find a quiet study space with a power outlet.',
         ),
         SizedBox(height: 10),
         _SampleLine(
-          icon: Icons.checklist_rounded,
-          title: 'Review checklist',
-          detail: 'Ease of use and clear instructions',
+          icon: Icons.list_alt_outlined,
+          title: 'Questionnaire',
+          detail: 'Sample usability check · 1 question',
         ),
       ],
     ),
     1 => const Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        Row(
-          children: [
-            Expanded(
-              child: _SamplePerson(icon: Icons.person_outline, label: 'You'),
-            ),
-            Padding(
-              padding: EdgeInsets.symmetric(horizontal: 8),
-              child: Icon(
-                Icons.arrow_forward_rounded,
-                color: _sapphire,
-                size: 20,
-              ),
-            ),
-            Expanded(
-              child: _SamplePerson(
-                icon: Icons.rate_review_outlined,
-                label: 'Reviewer',
-              ),
-            ),
-          ],
+        _SampleLine(
+          icon: Icons.open_in_new_rounded,
+          title: 'Open project',
+          detail: 'Try the task on Campus Study Finder.',
         ),
         SizedBox(height: 10),
         _SampleLine(
-          icon: Icons.task_alt_rounded,
-          title: 'Invite accepted',
-          detail: 'Review task: book an appointment on your phone.',
+          icon: Icons.rate_review_outlined,
+          title: 'How easy was it to find a study space?',
+          detail: 'Rating: 4 · Strong',
         ),
       ],
     ),
     _ => const Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        _SampleScore(label: 'Ease of use', score: 4),
-        SizedBox(height: 10),
-        _SampleScore(label: 'Clear instructions', score: 3),
+        _SampleScore(label: 'Ease of finding a study space', score: 4),
         SizedBox(height: 14),
         _SampleLine(
           icon: Icons.chat_bubble_outline_rounded,
-          title: 'Reviewer’s note',
-          detail: 'Show a confirmation after someone books.',
+          title: 'Evaluator feedback',
+          detail:
+              'The Quiet rooms filter helped. Add a filter for power outlets.',
         ),
       ],
     ),
@@ -1241,7 +1279,7 @@ class _ReviewSample extends StatelessWidget {
                     children: [
                       _eyebrow('EXAMPLE PROJECT', color: _lightBlue),
                       Text(
-                        'Step ${step + 1} of 3',
+                        _status,
                         style: _type(10, color: Colors.white, weight: 800),
                       ),
                     ],
@@ -1264,7 +1302,7 @@ class _ReviewSample extends StatelessWidget {
                             crossAxisAlignment: CrossAxisAlignment.stretch,
                             children: [
                               Text(
-                                'Campus Clinic',
+                                'Campus Study Finder',
                                 style: _type(21, weight: 800, spacing: -.6),
                               ),
                               const SizedBox(height: 12),
@@ -1325,35 +1363,6 @@ class _SampleLine extends StatelessWidget {
   );
 }
 
-class _SamplePerson extends StatelessWidget {
-  const _SamplePerson({required this.icon, required this.label});
-
-  final IconData icon;
-  final String label;
-
-  @override
-  Widget build(BuildContext context) => DecoratedBox(
-    decoration: BoxDecoration(
-      color: const Color(0xBFFFFFFF),
-      borderRadius: BorderRadius.circular(11),
-    ),
-    child: Padding(
-      padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 3),
-      child: Column(
-        children: [
-          Icon(icon, size: 21, color: _sapphire),
-          const SizedBox(height: 4),
-          Text(
-            label,
-            textAlign: TextAlign.center,
-            style: _type(11, weight: 800),
-          ),
-        ],
-      ),
-    ),
-  );
-}
-
 class _SampleScore extends StatelessWidget {
   const _SampleScore({required this.label, required this.score});
 
@@ -1370,7 +1379,10 @@ class _SampleScore extends StatelessWidget {
         runSpacing: 3,
         children: [
           Text(label, style: _type(11, weight: 700)),
-          Text('$score / 5', style: _type(11, weight: 800, color: _regal)),
+          Text(
+            '${score.toStringAsFixed(2)} / 5',
+            style: _type(11, weight: 800, color: _regal),
+          ),
         ],
       ),
       const SizedBox(height: 5),
@@ -1437,28 +1449,26 @@ class _Audience extends StatelessWidget {
       children: [
         const _SectionTitle(
           label: 'WHO CAN JOIN',
-          title: 'Share or review a project.',
+          title: 'One account, both roles.',
           body:
-              'Students, creators, and reviewers can take part from anywhere.',
+              'Students, independent creators, and professionals can share their own work and evaluate projects from other members.',
         ),
         const SizedBox(height: 32),
         LayoutBuilder(
           builder: (context, box) {
             const creator = _AudienceCard(
-              number: '01',
-              label: 'FOR STUDENTS & CREATORS',
-              title: 'Share your work.',
+              label: 'CREATORS',
+              title: 'Ask for an evaluation.',
               detail:
-                  'Share a capstone, prototype, or game. Ask reviewers to try it and tell you where they got stuck.',
+                  'Choose what you want tested and who should try it. Share a questionnaire so you can compare feedback across responses.',
               photo: 'creator-notes',
               description: 'A student making notes beside a laptop',
             );
             const reviewer = _AudienceCard(
-              number: '02',
-              label: 'FOR REVIEWERS',
-              title: 'Review someone’s work.',
+              label: 'EVALUATORS',
+              title: 'Try someone’s project.',
               detail:
-                  'Try the project as a peer, expert, or first-time user. Follow the checklist and explain what worked and what could improve.',
+                  'Join as a peer, specialist, or first-time user. Follow the testing instructions and explain what worked and what could improve.',
               photo: 'review-discussion',
               description: 'A group discussing a project around a laptop',
             );
@@ -1485,7 +1495,6 @@ class _Audience extends StatelessWidget {
 
 class _AudienceCard extends StatefulWidget {
   const _AudienceCard({
-    required this.number,
     required this.label,
     required this.title,
     required this.detail,
@@ -1493,7 +1502,6 @@ class _AudienceCard extends StatefulWidget {
     required this.description,
   });
 
-  final String number;
   final String label;
   final String title;
   final String detail;
@@ -1542,7 +1550,7 @@ class _AudienceCardState extends State<_AudienceCard> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  _eyebrow('${widget.number}   /   ${widget.label}'),
+                  _eyebrow(widget.label),
                   const SizedBox(height: 9),
                   Semantics(
                     header: true,
@@ -1563,24 +1571,24 @@ class _AudienceCardState extends State<_AudienceCard> {
   );
 }
 
-class _Trust extends StatelessWidget {
-  const _Trust();
+class _WorkspaceHighlights extends StatelessWidget {
+  const _WorkspaceHighlights();
 
   static const _features = [
     (
-      Icons.lock_outline_rounded,
-      'Control who sees your project',
-      'Keep it private, invite someone directly, or share it with the signed-in community. Your linked files have their own access settings.',
+      Icons.group_outlined,
+      'Team workspace',
+      'Add collaborators to a project so your team can access the same project and its evaluation responses.',
     ),
     (
-      Icons.badge_outlined,
-      'Check reviewer profiles',
-      'Reviewers list their own skills and portfolio links. Check their profile to see if they fit your project.',
+      Icons.list_alt_outlined,
+      'Questionnaire library',
+      'Edit a copy of a free template or build your own questionnaire, then save it to use on later projects.',
     ),
     (
-      Icons.fact_check_outlined,
-      'Disclose conflicts and report concerns',
-      'Evaluators declare conflicts of interest when submitting a review. Signed-in members can report community projects for moderation.',
+      Icons.bar_chart_outlined,
+      'Responses and export',
+      'Compare question averages, read individual submissions, and export questionnaire results as a CSV.',
     ),
   ];
 
@@ -1589,10 +1597,10 @@ class _Trust extends StatelessWidget {
     child: LayoutBuilder(
       builder: (context, box) {
         const introduction = _SectionTitle(
-          label: 'SAFETY',
-          title: 'Privacy and safety.',
+          label: 'WORKSPACE',
+          title: 'Start with the guided tour.',
           body:
-              'Choose who can see your project and learn who is reviewing it.',
+              'After profile setup, follow a sample project from creation to results. You can click through with sample answers or try the forms yourself. Replay the tour any time from Profile.',
           dark: true,
         );
         final features = GlassSurface(
@@ -1681,20 +1689,24 @@ class _QuestionsState extends State<_Questions> {
 
   static const _items = [
     (
-      'Do I need to be a student?',
-      'No. Students, independent creators, and reviewers can take part from anywhere.',
+      'Can my team share a project?',
+      'The project owner can add teammates under Team workspace. Collaborators can open the shared project and view its evaluation results.',
     ),
     (
       'What can I share?',
-      'Share a link to a capstone, research project, prototype, game, or design. Make sure the people you invite can open it.',
+      'Share a direct link to a website, mobile app, prototype, game, research project, or creative work. Check that your evaluators can open the link.',
     ),
     (
-      'What is a review checklist?',
-      'A review checklist, called a rubric in the workspace, lists what to check. Reviewers give each item a score and can explain their feedback.',
+      'How do questionnaires work?',
+      'Creators choose a template or build their own questionnaire. Evaluators use it to rate the project and leave feedback inside In Cantiere.',
     ),
     (
       'Who can see my project?',
       'Keep it private, invite specific reviewers, or share it with signed-in members. Set permissions for linked files separately.',
+    ),
+    (
+      'Where do I see my evaluation results?',
+      'Open Projects, then choose Responses on your project to see ratings and written feedback. You can also export the results as a CSV.',
     ),
   ];
 

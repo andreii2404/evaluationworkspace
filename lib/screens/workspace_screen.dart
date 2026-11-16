@@ -4,6 +4,8 @@ import '../data/sample_data.dart';
 import '../models/workspace_models.dart';
 import '../services/workspace_repository.dart';
 import '../widgets/app_notice.dart';
+import '../widgets/loading_skeleton.dart';
+import '../widgets/workspace_select.dart';
 
 const _ink = Color(0xFF17283F);
 const _muted = Color(0xFF475467);
@@ -166,7 +168,12 @@ class _WorkspaceScreenState extends State<WorkspaceScreen> {
         final content = _buildContent(wide: wide);
         if (_loading) {
           return const Scaffold(
-            body: Center(child: CircularProgressIndicator(color: _brandTeal)),
+            body: Center(
+              child: SizedBox(
+                width: 320,
+                child: SkeletonRows(label: 'Loading workspace', leading: true),
+              ),
+            ),
           );
         }
         if (wide) {
@@ -2036,27 +2043,22 @@ class _CreateProjectDialogState extends State<_CreateProjectDialog> {
                     : null,
               ),
               const SizedBox(height: 12),
-              DropdownButtonFormField<String>(
-                initialValue: _category,
-                decoration: const InputDecoration(labelText: 'Project type'),
-                items:
-                    const [
-                          'Software prototype',
-                          'Mobile application',
-                          'Web platform',
-                          'Game or interactive media',
-                          'Research study',
-                          'Learning tool',
-                          'Other',
-                        ]
-                        .map(
-                          (item) =>
-                              DropdownMenuItem(value: item, child: Text(item)),
-                        )
-                        .toList(),
-                onChanged: (value) {
-                  if (value != null) setState(() => _category = value);
+              WorkspaceSelect<String>(
+                label: 'Project type',
+                initial: _category,
+                choices: {
+                  for (final type in const [
+                    'Software prototype',
+                    'Mobile application',
+                    'Web platform',
+                    'Game or interactive media',
+                    'Research study',
+                    'Learning tool',
+                    'Other',
+                  ])
+                    type: type,
                 },
+                onChanged: (value) => setState(() => _category = value),
               ),
               const SizedBox(height: 12),
               TextFormField(
@@ -2190,23 +2192,14 @@ class _EvaluatorsViewState extends State<_EvaluatorsView> {
                       hintText: 'Search skills or roles',
                     ),
                   );
-                  final filter = DropdownButtonFormField<String>(
-                    initialValue: _specialty,
-                    decoration: const InputDecoration(
-                      prefixIcon: Icon(Icons.tune_rounded),
-                      labelText: 'Filter specialty',
-                    ),
-                    items: specialties
-                        .map(
-                          (value) => DropdownMenuItem(
-                            value: value,
-                            child: Text(value, overflow: TextOverflow.ellipsis),
-                          ),
-                        )
-                        .toList(),
-                    onChanged: (value) {
-                      if (value != null) setState(() => _specialty = value);
+                  final filter = WorkspaceSelect<String>(
+                    label: 'Filter specialty',
+                    initial: _specialty,
+                    icon: Icons.tune_rounded,
+                    choices: {
+                      for (final specialty in specialties) specialty: specialty,
                     },
+                    onChanged: (value) => setState(() => _specialty = value),
                   );
                   if (constraints.maxWidth < 540) {
                     return Column(

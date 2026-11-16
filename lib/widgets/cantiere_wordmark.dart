@@ -8,11 +8,13 @@ class CantiereWordmark extends StatelessWidget {
     this.iconOnly = false,
     this.dark = true,
     this.fontSize = 28,
+    this.symbolSize = 38,
   });
 
   final bool iconOnly;
   final bool dark;
   final double fontSize;
+  final double symbolSize;
 
   @override
   Widget build(BuildContext context) => Semantics(
@@ -21,7 +23,7 @@ class CantiereWordmark extends StatelessWidget {
     child: Row(
       mainAxisSize: MainAxisSize.min,
       children: [
-        const CantiereSymbol(),
+        CantiereSymbol(size: symbolSize),
         if (!iconOnly) ...[
           const SizedBox(width: 10),
           Flexible(

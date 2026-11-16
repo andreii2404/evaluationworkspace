@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
@@ -8,10 +9,11 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import '../services/cloud_repository.dart';
 import '../widgets/app_notice.dart';
 import '../widgets/cantiere_wordmark.dart';
-import '../widgets/liquid_glass.dart';
+import '../widgets/workshop_glass.dart';
+import '../widgets/loading_skeleton.dart';
+import 'workspace_forms.dart';
 
-const _night = Color(0xFF001233);
-const _primary = Color(0xFF0466C8);
+const _night = Color(0xFF070C18);
 const _paleBlue = Color(0xFFC7E0FF);
 const _bright = Color(0xFFF5FAFF);
 const _border = Color(0x8DA9C5E5);
@@ -24,12 +26,18 @@ class AuthScreen extends StatefulWidget {
     super.key,
     required this.client,
     this.authReturnFailed = false,
+    this.authLinkExpired = false,
+    this.sessionEnded = false,
     this.initiallyRegister = false,
+    this.onRecovery,
   });
 
   final SupabaseClient client;
   final bool authReturnFailed;
+  final bool authLinkExpired;
+  final bool sessionEnded;
   final bool initiallyRegister;
+  final ValueChanged<bool>? onRecovery;
 
   @override
   State<AuthScreen> createState() => _AuthScreenState();
@@ -41,6 +49,7 @@ class _AuthScreenState extends State<AuthScreen> {
   final _email = TextEditingController();
   final _password = TextEditingController();
   final _confirmation = TextEditingController();
+  final _code = TextEditingController();
   final _emailFocus = FocusNode();
   final _passwordFocus = FocusNode();
   final _confirmationFocus = FocusNode();
@@ -51,12 +60,38 @@ class _AuthScreenState extends State<AuthScreen> {
   bool _working = false;
   bool _googleWorking = false;
   bool _checkEmail = false;
-  late String? _error = widget.authReturnFailed
+  bool _recovering = false;
+  bool _emailDeliveryBlocked = false;
+  DateTime? _resendAfter;
+  Timer? _resendTimer;
+  String? _sentMessage;
+  late String? _error = _entryError(widget);
+
+  String? _entryError(AuthScreen screen) => screen.sessionEnded
+      ? workspaceSessionEndedMessage
+      : screen.authLinkExpired
+      ? 'This email link has expired or was already used. Request a new one from log in or password reset.'
+      : screen.authReturnFailed
       ? 'Sign-in didn’t finish. Please try again.'
       : null;
 
+  @override
+  void didUpdateWidget(covariant AuthScreen oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    final previous = _entryError(oldWidget);
+    final next = _entryError(widget);
+    if (previous != next && (_error == null || _error == previous)) {
+      _error = next;
+    }
+  }
+
   bool get _busy => _working || _googleWorking;
   bool get _details => _step == _SignUpStep.details;
+  bool get _emailCodes => const bool.hasEnvironment('AUTH_EMAIL_CODES')
+      ? const bool.fromEnvironment('AUTH_EMAIL_CODES')
+      : const ['localhost', '127.0.0.1'].contains(
+          Uri.tryParse(const String.fromEnvironment('SUPABASE_URL'))?.host,
+        );
 
   @override
   void dispose() {
@@ -64,6 +99,8 @@ class _AuthScreenState extends State<AuthScreen> {
     _email.dispose();
     _password.dispose();
     _confirmation.dispose();
+    _code.dispose();
+    _resendTimer?.cancel();
     _emailFocus.dispose();
     _passwordFocus.dispose();
     _confirmationFocus.dispose();
@@ -104,6 +141,26 @@ class _AuthScreenState extends State<AuthScreen> {
 
   void _showError(String message) {
     if (mounted) setState(() => _error = message);
+  }
+
+  void _showAuthError(Object error) {
+    if (!mounted) return;
+    final code = error is AuthException ? error.code : null;
+    setState(() {
+      _emailDeliveryBlocked =
+          code == 'email_address_not_authorized' ||
+          code == 'over_email_send_rate_limit';
+      _error = switch (code) {
+        'email_address_not_authorized' =>
+          'Email verification is unavailable for this address.',
+        'over_email_send_rate_limit' =>
+          'The email sending limit was reached. Wait before requesting another email.',
+        'invalid_credentials' => 'Check your email and password and try again.',
+        'otp_expired' || 'invalid_otp' =>
+          'This code is incorrect or expired. Request a new code and use the most recent email.',
+        _ => workspaceError(error),
+      };
+    });
   }
 
   Future<void> _signInWithGoogle() async {
@@ -160,9 +217,89 @@ class _AuthScreenState extends State<AuthScreen> {
     });
   }
 
+  void _startEmailFlow({required bool recovery, bool codeSent = false}) {
+    FocusScope.of(context).unfocus();
+    _code.clear();
+    _password.clear();
+    _confirmation.clear();
+    setState(() {
+      _recovering = recovery;
+      _checkEmail = codeSent;
+      _error = null;
+      _sentMessage = null;
+    });
+  }
+
+  void _backToLogin({bool register = false}) {
+    _startEmailFlow(recovery: false);
+    _resendTimer?.cancel();
+    setState(() {
+      _register = register;
+      _step = _SignUpStep.details;
+      _resendAfter = null;
+    });
+  }
+
+  int get _resendSeconds => _resendAfter == null
+      ? 0
+      : (_resendAfter!.difference(DateTime.now()).inMilliseconds / 1000)
+            .ceil()
+            .clamp(0, 60);
+
+  void _waitToResend() {
+    _resendAfter = DateTime.now().add(const Duration(seconds: 60));
+    _resendTimer?.cancel();
+    _resendTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
+      if (!mounted || _resendSeconds == 0) timer.cancel();
+      if (mounted) setState(() {});
+    });
+  }
+
+  Future<void> _requestRecoveryEmail() async {
+    await widget.client.auth.resetPasswordForEmail(
+      _email.text.trim(),
+      redirectTo: _appRedirect(),
+    );
+  }
+
+  Future<void> _resend() async {
+    if (_busy || _resendSeconds > 0) return;
+    setState(() {
+      _working = true;
+      _error = null;
+      _sentMessage = null;
+    });
+    try {
+      if (_recovering) {
+        await _requestRecoveryEmail();
+      } else {
+        await widget.client.auth.resend(
+          type: OtpType.signup,
+          email: _email.text.trim(),
+          emailRedirectTo: _appRedirect(),
+        );
+      }
+      if (!mounted) return;
+      _code.clear();
+      _waitToResend();
+      setState(
+        () => _sentMessage = _emailCodes
+            ? 'If this address is eligible, a new code is on its way.'
+            : 'If this address is eligible, a new link is on its way.',
+      );
+    } catch (error) {
+      _showAuthError(error);
+    } finally {
+      if (mounted) setState(() => _working = false);
+    }
+  }
+
   Future<void> _continue() async {
-    if (_busy || _form.currentState?.validate() != true) return;
-    if (_register && _step != _SignUpStep.confirmation) {
+    if (_busy || !validateAndReveal(_form)) return;
+    if (!_recovering &&
+        !_checkEmail &&
+        _register &&
+        _step != _SignUpStep.confirmation) {
       if (_step == _SignUpStep.password) _confirmation.clear();
       _changeStep(_details ? _SignUpStep.password : _SignUpStep.confirmation);
       return;
@@ -175,7 +312,29 @@ class _AuthScreenState extends State<AuthScreen> {
       _error = null;
     });
     try {
-      if (_register) {
+      if (_checkEmail) {
+        if (_recovering) widget.onRecovery?.call(true);
+        try {
+          final verified = await widget.client.auth.verifyOTP(
+            email: _email.text.trim(),
+            token: _code.text,
+            type: _recovering ? OtpType.recovery : OtpType.email,
+          );
+          if (verified.session == null) {
+            throw const FormatException(
+              'Verification didn’t finish. Please try again.',
+            );
+          }
+        } catch (_) {
+          if (_recovering) widget.onRecovery?.call(false);
+          rethrow;
+        }
+      } else if (_recovering) {
+        await _requestRecoveryEmail();
+        if (!mounted) return;
+        _waitToResend();
+        setState(() => _checkEmail = true);
+      } else if (_register) {
         final response = await widget.client.auth.signUp(
           email: _email.text.trim(),
           password: _password.text,
@@ -185,9 +344,8 @@ class _AuthScreenState extends State<AuthScreen> {
         if (!mounted) return;
         TextInput.finishAutofillContext(shouldSave: true);
         if (response.session == null) {
-          _password.clear();
-          _confirmation.clear();
-          setState(() => _checkEmail = true);
+          _startEmailFlow(recovery: false, codeSent: true);
+          _waitToResend();
         }
       } else {
         await widget.client.auth.signInWithPassword(
@@ -197,11 +355,15 @@ class _AuthScreenState extends State<AuthScreen> {
         if (mounted) TextInput.finishAutofillContext(shouldSave: true);
       }
     } catch (error) {
-      _showError(
-        error is AuthException && error.code == 'invalid_credentials'
-            ? 'Check your email and password and try again.'
-            : workspaceError(error),
-      );
+      if (!_register &&
+          !_recovering &&
+          !_checkEmail &&
+          error is AuthException &&
+          error.code == 'email_not_confirmed') {
+        if (mounted) _startEmailFlow(recovery: false, codeSent: true);
+        return;
+      }
+      _showAuthError(error);
     } finally {
       if (mounted) setState(() => _working = false);
     }
@@ -217,7 +379,11 @@ class _AuthScreenState extends State<AuthScreen> {
   }
 
   String get _title {
-    if (_checkEmail) return 'Check your email';
+    if (_checkEmail && !_emailCodes) return 'Check your email';
+    if (_checkEmail) {
+      return _recovering ? 'Enter your reset code' : 'Verify your email';
+    }
+    if (_recovering) return 'Reset your password';
     if (!_register) return 'Welcome back';
     return switch (_step) {
       _SignUpStep.details => 'Create an account',
@@ -228,8 +394,16 @@ class _AuthScreenState extends State<AuthScreen> {
 
   String get _description {
     if (_checkEmail) {
-      return 'Open the confirmation link for ${_email.text.trim()}.';
+      if (!_emailCodes) {
+        return _recovering
+            ? 'If the address is registered, open the password reset link sent to ${_email.text.trim()} in this browser.'
+            : 'Open the confirmation link for ${_email.text.trim()} in this browser, or request a new one below.';
+      }
+      return _recovering
+          ? 'If the address is registered, you’ll receive a code at ${_email.text.trim()}.'
+          : 'Enter the verification code for ${_email.text.trim()}, or request a new one below.';
     }
+    if (_recovering) return 'Enter the email address you use for In Cantiere.';
     if (!_register) return 'Log in to your $cantiereName workspace.';
     return switch (_step) {
       _SignUpStep.details => 'Enter your name and email to get started.',
@@ -264,7 +438,9 @@ class _AuthScreenState extends State<AuthScreen> {
     focusNode: _emailFocus,
     enabled: !_busy,
     keyboardType: TextInputType.emailAddress,
-    textInputAction: _register ? TextInputAction.done : TextInputAction.next,
+    textInputAction: _register || _recovering
+        ? TextInputAction.done
+        : TextInputAction.next,
     autofillHints: const [AutofillHints.email],
     decoration: _field('Email', Icons.mail_outline_rounded),
     validator: (value) =>
@@ -272,7 +448,7 @@ class _AuthScreenState extends State<AuthScreen> {
         ? 'Enter a valid email address.'
         : null,
     onFieldSubmitted: (_) {
-      if (_register) {
+      if (_register || _recovering) {
         _continue();
       } else {
         _passwordFocus.requestFocus();
@@ -322,7 +498,7 @@ class _AuthScreenState extends State<AuthScreen> {
     onFieldSubmitted: (_) => _continue(),
   );
 
-  Widget _google() => FutureBuilder<bool>(
+  Widget _google({bool showDivider = true}) => FutureBuilder<bool>(
     future: _googleAvailable,
     builder: (context, snapshot) => snapshot.data == true
         ? Column(
@@ -346,58 +522,42 @@ class _AuthScreenState extends State<AuthScreen> {
                   _googleWorking ? 'Opening Google…' : 'Continue with Google',
                 ),
               ),
-              const SizedBox(height: 14),
-              const Row(
-                children: [
-                  Expanded(child: Divider(color: _border)),
-                  Padding(
-                    padding: EdgeInsets.symmetric(horizontal: 10),
-                    child: Text(
-                      'or use email',
-                      style: TextStyle(color: _paleBlue, fontSize: 10),
+              if (showDivider) ...[
+                const SizedBox(height: 14),
+                const Row(
+                  children: [
+                    Expanded(child: Divider(color: _border)),
+                    Padding(
+                      padding: EdgeInsets.symmetric(horizontal: 10),
+                      child: Text(
+                        'or use email',
+                        style: TextStyle(color: _paleBlue, fontSize: 10),
+                      ),
                     ),
-                  ),
-                  Expanded(child: Divider(color: _border)),
-                ],
-              ),
-              const SizedBox(height: 14),
+                    Expanded(child: Divider(color: _border)),
+                  ],
+                ),
+                const SizedBox(height: 14),
+              ],
             ],
+          )
+        : snapshot.connectionState == ConnectionState.waiting
+        ? const Padding(
+            padding: EdgeInsets.only(bottom: 14),
+            child: LoadingSkeleton(
+              label: 'Loading sign-in options',
+              child: SkeletonBlock(height: 44, radius: 22),
+            ),
           )
         : const SizedBox.shrink(),
   );
 
   Widget _button(String label, VoidCallback? action, {IconData? icon}) =>
-      FilledButton.icon(
+      WorkshopAction(
+        label: label,
         onPressed: action,
-        style:
-            FilledButton.styleFrom(
-              backgroundColor: _primary,
-              foregroundColor: Colors.white,
-              disabledBackgroundColor: const Color(0xFF204C7D),
-              disabledForegroundColor: _paleBlue,
-              minimumSize: const Size(0, 51),
-              shape: const StadiumBorder(),
-              side: const BorderSide(color: Color(0x94A5D1FF)),
-            ).copyWith(
-              animationDuration: MediaQuery.disableAnimationsOf(context)
-                  ? Duration.zero
-                  : const Duration(milliseconds: 180),
-              backgroundColor: WidgetStateProperty.resolveWith((states) {
-                if (states.contains(WidgetState.disabled)) {
-                  return const Color(0xFF204C7D);
-                }
-                if (states.contains(WidgetState.pressed)) {
-                  return const Color(0xFF023E7D);
-                }
-                if (states.contains(WidgetState.hovered)) {
-                  return const Color(0xFF0353A4);
-                }
-                return _primary;
-              }),
-            ),
-        icon: icon == null ? const SizedBox.shrink() : Icon(icon, size: 18),
-        label: Text(label, textAlign: TextAlign.center),
-        iconAlignment: IconAlignment.end,
+        icon: icon,
+        minHeight: 51,
       );
 
   Widget _stepContent() {
@@ -422,7 +582,7 @@ class _AuthScreenState extends State<AuthScreen> {
               child: Icon(Icons.mark_email_read_outlined, color: _bright),
             ),
           )
-        else if (_register)
+        else if (_register && !_recovering)
           _SignUpProgress(step: _step),
         if (_register) const SizedBox(height: 15),
         Semantics(
@@ -449,13 +609,80 @@ class _AuthScreenState extends State<AuthScreen> {
           ),
         ),
         const SizedBox(height: 25),
-        if (_checkEmail)
-          _button(
-            'Back to log in',
-            _switchMode,
-            icon: Icons.arrow_forward_rounded,
-          )
-        else ...[
+        if (_checkEmail || _recovering) ...[
+          if (_checkEmail && _emailCodes)
+            TextFormField(
+              controller: _code,
+              enabled: !_busy,
+              decoration: _field('Verification code', Icons.password_rounded),
+              keyboardType: TextInputType.number,
+              autofillHints: const [AutofillHints.oneTimeCode],
+              inputFormatters: [
+                FilteringTextInputFormatter.digitsOnly,
+                LengthLimitingTextInputFormatter(10),
+              ],
+              validator: (value) => (value?.length ?? 0) >= 6
+                  ? null
+                  : 'Enter the full verification code from your email.',
+              onFieldSubmitted: (_) => _continue(),
+            )
+          else if (!_checkEmail)
+            _emailField(),
+          if (_error case final message?) ...[
+            const SizedBox(height: 12),
+            AppNotice(message, tone: NoticeTone.error),
+          ],
+          if (_sentMessage case final message?) ...[
+            const SizedBox(height: 12),
+            AppNotice(message),
+          ],
+          const SizedBox(height: 15),
+          if (!_checkEmail || _emailCodes)
+            _button(
+              _checkEmail
+                  ? 'Verify code'
+                  : _emailCodes
+                  ? 'Send reset code'
+                  : 'Send reset link',
+              _busy ? null : _continue,
+            ),
+          if (_checkEmail)
+            TextButton(
+              onPressed: _busy || _resendSeconds > 0 ? null : _resend,
+              child: Text(
+                _resendSeconds > 0
+                    ? 'Resend in ${_resendSeconds}s'
+                    : _emailCodes
+                    ? 'Resend code'
+                    : 'Resend link',
+                style: const TextStyle(color: _paleBlue),
+              ),
+            ),
+          if (_checkEmail && !_recovering) _google(showDivider: false),
+          TextButton(
+            onPressed: _busy
+                ? null
+                : () {
+                    if (_recovering && _checkEmail) {
+                      _startEmailFlow(recovery: true);
+                    } else {
+                      _backToLogin(register: _checkEmail && _register);
+                    }
+                  },
+            child: Text(
+              _checkEmail ? 'Change email address' : 'Back to log in',
+              style: const TextStyle(color: _paleBlue),
+            ),
+          ),
+          if (_checkEmail)
+            TextButton(
+              onPressed: _busy ? null : _backToLogin,
+              child: const Text(
+                'Back to log in',
+                style: TextStyle(color: _paleBlue),
+              ),
+            ),
+        ] else ...[
           if (_details) ...[
             _google(),
             if (_register) ...[_nameField(), const SizedBox(height: 12)],
@@ -466,6 +693,10 @@ class _AuthScreenState extends State<AuthScreen> {
           if (_error case final message?) ...[
             const SizedBox(height: 13),
             AppNotice(message, tone: NoticeTone.error),
+            if (_emailDeliveryBlocked && !_details) ...[
+              const SizedBox(height: 12),
+              _google(showDivider: false),
+            ],
           ],
           const SizedBox(height: 19),
           _button(
@@ -473,6 +704,14 @@ class _AuthScreenState extends State<AuthScreen> {
             _busy ? null : _continue,
             icon: _working ? null : Icons.arrow_forward_rounded,
           ),
+          if (!_register)
+            TextButton(
+              onPressed: _busy ? null : () => _startEmailFlow(recovery: true),
+              child: const Text(
+                'Forgot password?',
+                style: TextStyle(color: _paleBlue),
+              ),
+            ),
           const SizedBox(height: 8),
           TextButton(
             onPressed: _busy
@@ -580,9 +819,9 @@ class _AuthScreenState extends State<AuthScreen> {
                             children: [
                               const CantiereWordmark(),
                               const SizedBox(height: 22),
-                              GlassSurface(
+                              WorkshopGlass(
                                 radius: 29,
-                                blur: 15,
+                                featured: true,
                                 child: Padding(
                                   padding: const EdgeInsets.fromLTRB(
                                     23,
@@ -710,7 +949,7 @@ class _AuthBackdrop extends StatelessWidget {
           gradient: LinearGradient(
             begin: Alignment.topLeft,
             end: Alignment.bottomRight,
-            colors: [Color(0xF0001233), Color(0xBF002855), Color(0xEB001233)],
+            colors: [Color(0xF0070C18), Color(0xD4152033), Color(0xF0070C18)],
           ),
         ),
       ),
@@ -719,7 +958,7 @@ class _AuthBackdrop extends StatelessWidget {
           gradient: RadialGradient(
             center: Alignment(.33, -.26),
             radius: .8,
-            colors: [Color(0x5B0466C8), Colors.transparent],
+            colors: [Color(0x40324E76), Colors.transparent],
           ),
         ),
       ),

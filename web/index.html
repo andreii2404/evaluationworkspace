@@ -31,8 +31,47 @@
 
   <title>In Cantiere — Project reviews</title>
   <link rel="manifest" href="manifest.json">
+  <style>
+    body { margin: 0; background: #070a12; }
+    #startup { position: fixed; inset: 0; display: grid; place-items: center; z-index: 2; }
+    .startup-panel {
+      box-sizing: border-box;
+      width: min(340px, calc(100% - 32px));
+      padding: 22px;
+      border: 1px solid #36465c;
+      border-radius: 17px;
+      background: linear-gradient(135deg, #1d293a, #111824);
+      color: #dce8f7;
+      font: 14px system-ui, sans-serif;
+    }
+    .startup-line {
+      height: 11px;
+      margin: 10px 0 0;
+      border-radius: 7px;
+      background: #53657b;
+      animation: startup-pulse 950ms ease-in-out infinite alternate;
+    }
+    @keyframes startup-pulse { from { opacity: .45; } to { opacity: .9; } }
+    @media (prefers-reduced-motion: reduce) { .startup-line { animation: none; } }
+  </style>
 </head>
 <body>
+  <div id="startup" role="status" aria-label="Loading In Cantiere">
+    <div class="startup-panel">
+      <div class="startup-line" aria-hidden="true" style="width: 70%"></div>
+      <div class="startup-line" aria-hidden="true" style="width: 48%"></div>
+    </div>
+  </div>
+  <script>
+    const startup = document.getElementById('startup');
+    const startupTimeout = setTimeout(() => {
+      startup.querySelector('.startup-panel').textContent = 'Still loading. If this continues, reload the page.';
+    }, 20000);
+    window.addEventListener('flutter-first-frame', () => {
+      clearTimeout(startupTimeout);
+      startup.remove();
+    }, { once: true });
+  </script>
   <!--
     You can customize the "flutter_bootstrap.js" script.
     This is useful to provide a custom configuration to the Flutter loader

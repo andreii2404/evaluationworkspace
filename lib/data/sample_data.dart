@@ -111,7 +111,7 @@ const sampleReviewTasks = <ReviewTask>[
     title: 'Check lesson feedback and clarity',
     projectName: 'StudySpark',
     projectId: 'project-studyspark',
-    kind: 'Expert review',
+    kind: 'Content review',
     dueLabel: 'Due in 4 days',
     status: 'In progress',
     reviewerName: 'Ana Okafor',

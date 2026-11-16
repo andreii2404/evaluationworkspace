@@ -7,9 +7,8 @@ const muted = Color(0xFF475467);
 const line = Color(0xFFD0D5DD);
 const mint = Color(0xFFD9F3EE);
 
-const workshopNight = Color(0xFF040C1F);
-const workshopSurface = Color(0xFF101F37);
-const workshopBlue = Color(0xFF0466C8);
+const workshopNight = Color(0xFF070A12);
+const workshopSurface = Color(0xFF171E2D);
 const workshopIce = Color(0xFFB9D9FF);
 const workshopText = Color(0xFFF2F3F5);
 const workshopMuted = Color(0xFFC0CDE0);
@@ -19,6 +18,11 @@ ThemeData workshopTheme(ThemeData base) {
   final border = OutlineInputBorder(
     borderRadius: BorderRadius.circular(14),
     borderSide: const BorderSide(color: workshopEdge),
+  );
+  final text = base.textTheme.apply(
+    fontFamily: 'Manrope',
+    bodyColor: workshopText,
+    displayColor: workshopText,
   );
   return base.copyWith(
     canvasColor: workshopSurface,
@@ -39,10 +43,14 @@ ThemeData workshopTheme(ThemeData base) {
       outlineVariant: workshopEdge,
       surfaceContainerHighest: Color(0xFF213653),
     ),
-    textTheme: base.textTheme.apply(
-      fontFamily: 'Manrope',
-      bodyColor: workshopText,
-      displayColor: workshopText,
+    textTheme: text.copyWith(
+      bodySmall: text.bodySmall?.copyWith(fontSize: 12),
+      bodyMedium: text.bodyMedium?.copyWith(fontSize: 14),
+      bodyLarge: text.bodyLarge?.copyWith(fontSize: 15),
+      labelLarge: text.labelLarge?.copyWith(fontSize: 13),
+      titleMedium: text.titleMedium?.copyWith(fontSize: 16),
+      titleLarge: text.titleLarge?.copyWith(fontSize: 21),
+      headlineMedium: text.headlineMedium?.copyWith(fontSize: 26),
     ),
     dividerColor: workshopEdge,
     hoverColor: const Color(0x16FFFFFF),
@@ -52,7 +60,7 @@ ThemeData workshopTheme(ThemeData base) {
     ),
     inputDecorationTheme: InputDecorationTheme(
       filled: true,
-      fillColor: const Color(0xB3040C1F),
+      fillColor: const Color(0xC3090E19),
       hoverColor: const Color(0x16FFFFFF),
       border: border,
       enabledBorder: border,

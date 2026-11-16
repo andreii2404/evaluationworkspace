@@ -1,12 +1,37 @@
+import 'dart:async';
 import 'dart:math';
 import 'dart:typed_data';
 
+import 'package:http/http.dart' as http;
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import 'questionnaire_data.dart';
 
 typedef WorkspaceRow = Map<String, dynamic>;
 typedef QuestionnaireFile = ({String name, Uint8List bytes});
+
+const workspaceSessionEndedMessage =
+    'Your session ended. Please sign in again.';
+
+class _ProfileMissing implements Exception {
+  const _ProfileMissing();
+}
+
+bool workspaceSessionEnded(Object? error) => switch (error) {
+  _ProfileMissing() || AuthSessionMissingException() => true,
+  AuthException(
+    code: 'user_not_found' ||
+        'session_not_found' ||
+        'session_expired' ||
+        'session_missing' ||
+        'refresh_token_not_found' ||
+        'bad_jwt' ||
+        'invalid_jwt',
+  ) =>
+    true,
+  PostgrestException(code: 'PGRST301' || 'PGRST303') => true,
+  _ => false,
+};
 
 const questionnaireSources = {
   'website-iso25010-v1': (
@@ -26,10 +51,26 @@ bool hasQuestionnaire(WorkspaceRow project) =>
     project['questionnaire_url'] != null ||
     project['questionnaire_file_path'] != null;
 
+bool hasNativeQuestionnaire(WorkspaceRow project) =>
+    project['questionnaire_form'] != null ||
+    project['rubric_id'] != null ||
+    project['custom_questions'] != null;
+
 const evaluatorTypes = {
   'peer': 'Peer reviewer',
   'professional': 'Professional',
   'community': 'Community evaluator',
+};
+
+const professions = {
+  'student': 'Student',
+  'educator': 'Educator',
+  'researcher': 'Researcher',
+  'it_expert': 'IT expert',
+  'subject_expert': 'Subject matter expert',
+  'industry_professional': 'Industry professional',
+  'independent_creator': 'Independent creator',
+  'other': 'Other',
 };
 
 class WorkspaceData {
@@ -66,19 +107,39 @@ class CloudRepository {
   bool get isModerator =>
       client.auth.currentUser?.appMetadata['evalink_moderator'] == true;
 
-  Future<WorkspaceData> load() async {
-    final profileFuture = client
+  Future<WorkspaceRow> loadProfile() async {
+    final profiles = await client
         .from('profiles')
         .select()
         .eq('id', userId)
+        .limit(1)
+        .timeout(const Duration(seconds: 12));
+    final profile = profiles.firstOrNull;
+    if (profile == null) throw const _ProfileMissing();
+    return profile;
+  }
+
+  Future<void> finishWalkthrough() async {
+    await client
+        .from('profiles')
+        .update({'walkthrough_finished': true})
+        .eq('id', userId)
+        .select('id')
         .single();
+  }
+
+  Future<WorkspaceData> load({WorkspaceRow? initialProfile}) async {
     final showReports = isModerator;
     final batches = await Future.wait([
-      profileFuture.then((profile) => [profile]),
+      if (initialProfile == null)
+        loadProfile().then((profile) => [profile])
+      else
+        Future.value([initialProfile]),
       client
           .from('projects')
-          .select()
-          .eq('creator_id', userId)
+          .select('*, team:project_collaborators!left(member_id)')
+          .eq('team.member_id', userId)
+          .or('creator_id.eq.$userId,team.not.is.null')
           .order('created_at')
           .limit(100),
       client
@@ -98,7 +159,8 @@ class CloudRepository {
       client
           .from('review_assignments')
           .select(
-            '*, projects(*), evaluator:profiles!review_assignments_evaluator_id_fkey(display_name)',
+            '*, projects(*), round:project_review_rounds(label,artifact_url), '
+            'evaluator:profiles!review_assignments_evaluator_id_fkey(display_name)',
           )
           .order('requested_at')
           .limit(100),
@@ -124,6 +186,37 @@ class CloudRepository {
 
   Future<List<WorkspaceRow>> rubrics() async =>
       await client.from('rubrics').select().order('name', ascending: true);
+
+  Future<List<WorkspaceRow>> memberConnections() => client
+      .from('member_connections')
+      .select(
+        'id,requester_id,recipient_id,status,'
+        'requester:profiles!member_connections_requester_id_fkey(id,display_name,profession,headline),'
+        'recipient:profiles!member_connections_recipient_id_fkey(id,display_name,profession,headline)',
+      )
+      .order('created_at');
+
+  Future<void> requestConnection(String memberId) async {
+    await client.from('member_connections').insert({'recipient_id': memberId});
+  }
+
+  Future<void> acceptConnection(String connectionId) async {
+    await client
+        .from('member_connections')
+        .update({'status': 'accepted'})
+        .eq('id', connectionId)
+        .select('id')
+        .single();
+  }
+
+  Future<void> removeConnection(String connectionId) async {
+    await client
+        .from('member_connections')
+        .delete()
+        .eq('id', connectionId)
+        .select('id')
+        .single();
+  }
 
   Future<List<WorkspaceRow>> criteria(String rubric) async => await client
       .from('rubric_criteria')
@@ -267,10 +360,25 @@ class CloudRepository {
         .single();
   }
 
-  Future<void> invite(String projectId, String evaluatorId) async {
+  Future<WorkspaceRow> completeOnboarding(WorkspaceRow values) async {
+    final updated = await client
+        .from('profiles')
+        .update({...values, 'onboarding_completed': true})
+        .eq('id', userId)
+        .eq('onboarding_completed', false)
+        .select();
+    return updated.firstOrNull ?? await loadProfile();
+  }
+
+  Future<void> invite(
+    String projectId,
+    String evaluatorId, {
+    String? roundId,
+  }) async {
     await client.from('review_assignments').insert({
       'project_id': projectId,
       'evaluator_id': evaluatorId,
+      'round_id': ?roundId,
     });
   }
 
@@ -299,6 +407,45 @@ class CloudRepository {
     });
   }
 
+  Future<void> submitCommunityEvaluation(
+    String projectId,
+    QuestionnaireForm? form,
+    Map<String, int> scores,
+    String feedback,
+    List<String> details,
+  ) async {
+    try {
+      await client.rpc(
+        'submit_community_evaluation',
+        params: {
+          'p_project': projectId,
+          'p_form': form?.toJson(),
+          'p_scores': scores,
+          'p_feedback': feedback,
+          'p_details': details,
+        },
+      );
+    } on PostgrestException catch (error) {
+      if (error.code == 'P0001') throw FormatException(error.message);
+      rethrow;
+    }
+  }
+
+  Future<void> updateProjectQuestionnaire(
+    String projectId,
+    QuestionnaireForm form,
+  ) async {
+    try {
+      await client.rpc(
+        'update_project_questionnaire',
+        params: {'p_project': projectId, 'p_form': form.toJson()},
+      );
+    } on PostgrestException catch (error) {
+      if (error.code == 'P0001') throw FormatException(error.message);
+      rethrow;
+    }
+  }
+
   Future<void> report(String projectId, String reason) async {
     await client.from('project_reports').insert({
       'project_id': projectId,
@@ -318,6 +465,18 @@ class CloudRepository {
 }
 
 String workspaceError(Object error) => switch (error) {
+  _ when workspaceSessionEnded(error) => workspaceSessionEndedMessage,
+  FormatException(:final message) => message,
+  TimeoutException() ||
+  http.ClientException() ||
+  AuthRetryableFetchException() =>
+    'Couldn’t connect. Check your connection and try again.',
+  AuthException(code: 'email_not_confirmed') =>
+    'Confirm your email using the link in your inbox, then sign in again.',
+  AuthException(
+    code: 'over_request_rate_limit' || 'over_email_send_rate_limit',
+  ) =>
+    'Too many attempts. Wait a moment and try again.',
   AuthException(:final message) => message,
   PostgrestException(code: '23505') => 'This action has already been recorded.',
   PostgrestException(code: 'PGRST116' || '42501') =>
